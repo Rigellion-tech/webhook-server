@@ -6,6 +6,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import replicate
 import os
+import requests
 
 # Load Replicate API token securely from environment
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
@@ -40,6 +41,31 @@ def send_email(to_email, subject, body):
             print("✅ Email sent successfully.")
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
+
+# ----------------------------
+# Upload image to Imgur
+# ----------------------------
+def upload_to_imgur(image_url):
+    client_id = os.getenv("IMGUR_CLIENT_ID")
+    if not client_id:
+        logging.error("❌ IMGUR_CLIENT_ID not set.")
+        return None
+
+    headers = {"Authorization": f"Client-ID {client_id}"}
+    data = {"image": image_url, "type": "URL"}
+
+    try:
+        response = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
+        if response.status_code == 200:
+            imgur_link = response.json()["data"]["link"]
+            logging.info(f"✅ Uploaded to Imgur: {imgur_link}")
+            return imgur_link
+        else:
+            logging.error(f"❌ Imgur upload failed: {response.text}")
+            return None
+    except Exception as e:
+        logging.error("❌ Imgur upload exception", exc_info=True)
+        return None
 
 # ----------------------------
 # AI Image Generation Function
@@ -133,9 +159,10 @@ def handle_webhook():
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # Generate image
+    # Upload to Imgur and generate image
+    imgur_url = upload_to_imgur(photo_url) if photo_url else None
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
-    image_url = generate_goal_image(ai_prompt, photo_url)
+    image_url = generate_goal_image(ai_prompt, imgur_url)
 
     # Logging
     logging.info("=== New Submission ===")
@@ -179,4 +206,3 @@ The DayDream Forge Team
 # ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
-

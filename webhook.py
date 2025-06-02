@@ -7,8 +7,10 @@ from email.mime.multipart import MIMEMultipart
 import replicate
 import os
 
-# Set Replicate API token
-os.environ["REPLICATE_API_TOKEN"] = "r8_RodvG1wNa5EZGWy2DkTknbh1wG930Gh43LYMq"  # Replace this!
+# Load Replicate API token securely from environment
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+if REPLICATE_API_TOKEN:
+    replicate.Client(api_token=REPLICATE_API_TOKEN)
 
 # Configure logging
 logging.basicConfig(
@@ -23,7 +25,7 @@ app = Flask(__name__)
 # -----------------------
 def send_email(to_email, subject, body):
     from_email = "daydreamforgephyton.ai@gmail.com"
-    app_password = "sbng biye byiw pdli"
+    app_password = os.getenv("EMAIL_APP_PASSWORD")  # Securely load email password from environment
 
     msg = MIMEMultipart()
     msg["From"] = from_email

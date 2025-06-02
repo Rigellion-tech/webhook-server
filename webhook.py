@@ -8,6 +8,8 @@ import replicate
 import os
 import requests
 import base64
+from io import BytesIO
+from PIL import Image
 
 # Load Replicate API token securely from environment
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
@@ -44,34 +46,25 @@ def send_email(to_email, subject, body):
         print(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# Convert image URL to base64
+# AI Image Generation Function (Base64 Encoding)
 # ----------------------------
-def image_url_to_base64(url):
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            return base64.b64encode(response.content).decode('utf-8')
-        else:
-            logging.error(f"Failed to download image from {url}")
-            return None
-    except Exception as e:
-        logging.error("Error converting image to base64", exc_info=True)
-        return None
-
-# ----------------------------
-# AI Image Generation Function
-# ----------------------------
-def generate_goal_image(prompt, base64_image):
+def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
-        logging.error("❌ Missing Replicate API token.")
+        logging.error("❌ Missing Replicate API token. Cannot generate image.")
         return None
 
     try:
+        # Fetch the image from URL and convert to base64
+        image = Image.open(BytesIO(requests.get(image_url).content))
+        buffered = BytesIO()
+        image.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
         output = replicate.run(
-            "stability-ai/stable-diffusion-img2img",
+            "stability-ai/stable-diffusion-img2img",  # Please confirm the model path
             input={
                 "prompt": prompt,
-                "image": f"data:image/jpeg;base64,{base64_image}",
+                "image": img_base64,
                 "strength": 0.75,
                 "num_outputs": 1
             }
@@ -150,10 +143,9 @@ def handle_webhook():
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # Convert to base64 and generate image
-    image_base64 = image_url_to_base64(photo_url) if photo_url else None
+    # Generate image
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
-    image_url = generate_goal_image(ai_prompt, image_base64)
+    image_url = generate_goal_image(ai_prompt, photo_url)
 
     # Logging
     logging.info("=== New Submission ===")

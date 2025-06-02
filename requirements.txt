@@ -1,2 +1,3 @@
-Flask
-replicate
+Flask>=2.0.0
+replicate>=0.8.1
+requests>=2.25.1

@@ -1,6 +1,9 @@
 from flask import Flask, request, jsonify
 import logging
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Configure logging
 logging.basicConfig(
@@ -9,6 +12,27 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
+
+# -----------------------
+# Email sending function
+# -----------------------
+def send_email(to_email, subject, body):
+    from_email = "daydreamforgephyton.ai@gmail.com"  # Replace this with your sender email
+    app_password = "sbng biye byiw pdli"     # Replace with 16-character app password
+
+    msg = MIMEMultipart()
+    msg["From"] = from_email
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(from_email, app_password)
+            server.send_message(msg)
+            print("✅ Email sent successfully.")
+    except Exception as e:
+        print(f"❌ Failed to send email: {e}")
 
 # Helper to calculate age
 def calculate_age(birthdate_str):
@@ -92,8 +116,33 @@ def handle_webhook():
     logging.info(f"Desired Weight (lbs): {desired_weight_lbs} | (kg): {desired_weight_kg}")
     logging.info("======================")
 
+    # ------------------------
+    # Send confirmation email
+    # ------------------------
+    if email:
+        email_body = f"""
+        Hi {first_name},
+
+        Thanks for submitting your fitness form!
+
+        Here's a quick summary of what you provided:
+        - Age: {age}
+        - Current Weight: {current_weight_lbs} lbs ({current_weight_kg} kg)
+        - Desired Weight: {desired_weight_lbs} lbs ({desired_weight_kg} kg)
+
+        You'll receive your AI-generated fitness image and plan shortly.
+
+        Cheers,
+        The Fitness AI Team
+        """
+        send_email(
+            to_email=email,
+            subject="Your Fitness Form Submission",
+            body=email_body
+        )
+
     return jsonify({'status': 'received'}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
-
+x

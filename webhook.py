@@ -49,6 +49,7 @@ def handle_webhook():
     gender = get_field_value('gender')
     photo_url = get_field_value('photo')
     special_conditions = get_field_value("special health conditions")
+    desired_weight = get_field_value("desired weight")
 
     logging.info("=== New Submission ===")
     logging.info(f"First Name: {first_name}")
@@ -61,6 +62,7 @@ def handle_webhook():
     logging.info(f"Gender: {gender}")
     logging.info(f"Photo URL: {photo_url}")
     logging.info(f"Special Health Conditions: {special_conditions}")
+    logging.info(f"Desired Weight: {desired_weight}")
     logging.info("======================")
 
     return jsonify({'status': 'received'}), 200

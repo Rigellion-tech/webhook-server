@@ -12,7 +12,6 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 # testing whether the token is connected or not--
 logging.info(f"REPLICATE_API_TOKEN is set: {bool(REPLICATE_API_TOKEN)}")
 
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -45,27 +44,25 @@ def send_email(to_email, subject, body):
 # ----------------------------
 # AI Image Generation Function
 # ----------------------------
-def generate_goal_image(prompt):
+def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
         logging.error("❌ Missing Replicate API token. Cannot generate image.")
         return None
 
     try:
-        output_url = replicate.run(
-            "lucataco/realistic-vision-v5.1",
+        output = replicate.run(
+            "stability-ai/stable-diffusion-img2img",
             input={
                 "prompt": prompt,
-                "width": 512,
-                "height": 768,
+                "image": image_url,
+                "strength": 0.75,
                 "num_outputs": 1
             }
         )
-        return output_url[0] if output_url else None
+        return output[0] if output else None
     except Exception as e:
         logging.error("❌ Image generation failed", exc_info=True)
         return None
-
-
 
 # ----------------------------
 # Helper functions
@@ -138,7 +135,7 @@ def handle_webhook():
 
     # Generate image
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
-    image_url = generate_goal_image(ai_prompt)
+    image_url = generate_goal_image(ai_prompt, photo_url)
 
     # Logging
     logging.info("=== New Submission ===")
@@ -182,5 +179,4 @@ The DayDream Forge Team
 # ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
-
 

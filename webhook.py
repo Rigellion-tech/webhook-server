@@ -10,7 +10,9 @@ import os
 # Load Replicate API token securely from environment
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 if REPLICATE_API_TOKEN:
-    replicate.Client(api_token=REPLICATE_API_TOKEN)
+    client = replicate.Client(api_token=REPLICATE_API_TOKEN)
+else:
+    client = None
 
 # Configure logging
 logging.basicConfig(
@@ -45,8 +47,11 @@ def send_email(to_email, subject, body):
 # AI Image Generation Function
 # ----------------------------
 def generate_goal_image(prompt):
+    if not client:
+        logging.error("Replicate client not initialized due to missing API token.")
+        return None
     try:
-        output_url = replicate.run(
+        output_url = client.run(
             "lucataco/realistic-vision-v5.1",
             input={
                 "prompt": prompt,
@@ -55,7 +60,7 @@ def generate_goal_image(prompt):
                 "num_outputs": 1
             }
         )
-        return output_url[0]
+        return output_url[0] if output_url else None
     except Exception as e:
         logging.error(f"❌ Image generation failed: {e}")
         return None
@@ -175,4 +180,5 @@ The DayDream Forge Team
 # ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
 

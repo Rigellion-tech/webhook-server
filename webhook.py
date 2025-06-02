@@ -9,6 +9,9 @@ import os
 
 # Load Replicate API token securely from environment
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+# testing whether the token is connected or not--
+logging.info(f"REPLICATE_API_TOKEN is set: {bool(REPLICATE_API_TOKEN)}")
+
 if REPLICATE_API_TOKEN:
     client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 else:
@@ -62,8 +65,9 @@ def generate_goal_image(prompt):
         )
         return output_url[0] if output_url else None
     except Exception as e:
-        logging.error(f"❌ Image generation failed: {e}")
+        logging.error("❌ Image generation failed", exc_info=True)
         return None
+
 
 # ----------------------------
 # Helper functions

@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 import replicate
 import os
 import requests
+import base64
 
 # Load Replicate API token securely from environment
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
@@ -43,36 +44,26 @@ def send_email(to_email, subject, body):
         print(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# Upload image to Imgur
+# Convert image URL to base64
 # ----------------------------
-def upload_to_imgur(image_url):
-    client_id = os.getenv("IMGUR_CLIENT_ID")
-    if not client_id:
-        logging.error("❌ IMGUR_CLIENT_ID not set.")
-        return None
-
-    headers = {"Authorization": f"Client-ID {client_id}"}
-    data = {"image": image_url, "type": "URL"}
-
+def image_url_to_base64(url):
     try:
-        response = requests.post("https://api.imgur.com/3/image", headers=headers, data=data)
+        response = requests.get(url)
         if response.status_code == 200:
-            imgur_link = response.json()["data"]["link"]
-            logging.info(f"✅ Uploaded to Imgur: {imgur_link}")
-            return imgur_link
+            return base64.b64encode(response.content).decode('utf-8')
         else:
-            logging.error(f"❌ Imgur upload failed: {response.text}")
+            logging.error(f"Failed to download image from {url}")
             return None
     except Exception as e:
-        logging.error("❌ Imgur upload exception", exc_info=True)
+        logging.error("Error converting image to base64", exc_info=True)
         return None
 
 # ----------------------------
 # AI Image Generation Function
 # ----------------------------
-def generate_goal_image(prompt, image_url):
+def generate_goal_image(prompt, base64_image):
     if not REPLICATE_API_TOKEN:
-        logging.error("❌ Missing Replicate API token. Cannot generate image.")
+        logging.error("❌ Missing Replicate API token.")
         return None
 
     try:
@@ -80,7 +71,7 @@ def generate_goal_image(prompt, image_url):
             "stability-ai/stable-diffusion-img2img",
             input={
                 "prompt": prompt,
-                "image": image_url,
+                "image": f"data:image/jpeg;base64,{base64_image}",
                 "strength": 0.75,
                 "num_outputs": 1
             }
@@ -159,10 +150,10 @@ def handle_webhook():
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # Upload to Imgur and generate image
-    imgur_url = upload_to_imgur(photo_url) if photo_url else None
+    # Convert to base64 and generate image
+    image_base64 = image_url_to_base64(photo_url) if photo_url else None
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
-    image_url = generate_goal_image(ai_prompt, imgur_url)
+    image_url = generate_goal_image(ai_prompt, image_base64)
 
     # Logging
     logging.info("=== New Submission ===")

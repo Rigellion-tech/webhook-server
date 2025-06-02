@@ -4,6 +4,11 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import replicate
+import os
+
+# Set Replicate API token
+os.environ["REPLICATE_API_TOKEN"] = "r8_RodvG1wNa5EZGWy2DkTknbh1wG930Gh43LYMq"  # Replace this!
 
 # Configure logging
 logging.basicConfig(
@@ -17,8 +22,8 @@ app = Flask(__name__)
 # Email sending function
 # -----------------------
 def send_email(to_email, subject, body):
-    from_email = "daydreamforgephyton.ai@gmail.com"  # Replace this with your sender email
-    app_password = "sbng biye byiw pdli"     # Replace with 16-character app password
+    from_email = "daydreamforgephyton.ai@gmail.com"
+    app_password = "sbng biye byiw pdli"
 
     msg = MIMEMultipart()
     msg["From"] = from_email
@@ -34,7 +39,28 @@ def send_email(to_email, subject, body):
     except Exception as e:
         print(f"❌ Failed to send email: {e}")
 
-# Helper to calculate age
+# ----------------------------
+# AI Image Generation Function
+# ----------------------------
+def generate_goal_image(prompt):
+    try:
+        output_url = replicate.run(
+            "lucataco/realistic-vision-v5.1",
+            input={
+                "prompt": prompt,
+                "width": 512,
+                "height": 768,
+                "num_outputs": 1
+            }
+        )
+        return output_url[0]
+    except Exception as e:
+        logging.error(f"❌ Image generation failed: {e}")
+        return None
+
+# ----------------------------
+# Helper functions
+# ----------------------------
 def calculate_age(birthdate_str):
     try:
         dob = datetime.strptime(birthdate_str, "%Y-%m-%d")
@@ -44,13 +70,15 @@ def calculate_age(birthdate_str):
         logging.warning(f"Failed to parse birthdate: {e}")
         return None
 
-# Helper to convert lbs to kg
 def pounds_to_kg(lbs):
     try:
         return round(float(lbs) * 0.453592, 2)
     except:
         return None
 
+# ----------------------------
+# Webhook route
+# ----------------------------
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
@@ -66,7 +94,6 @@ def handle_webhook():
 
     fields = data['data']['fields']
 
-    # Log all fields
     logging.info("=== All Form Fields ===")
     for field in fields:
         logging.info(f"Label: {field.get('label')} | Type: {field.get('type')} | Value: {field.get('value')}")
@@ -100,49 +127,50 @@ def handle_webhook():
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
+    # Generate image
+    ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
+    image_url = generate_goal_image(ai_prompt)
+
+    # Logging
     logging.info("=== New Submission ===")
     logging.info(f"First Name: {first_name}")
-    logging.info(f"Last Name: {last_name}")
-    logging.info(f"Phone Number: {phone_number}")
-    logging.info(f"Date of Birth: {date_of_birth}")
-    logging.info(f"Age: {age}")
     logging.info(f"Email: {email}")
-    logging.info(f"Home Address: {home_address}")
-    logging.info(f"City | State | Zip: {city_state_zip}")
-    logging.info(f"Gender: {gender}")
-    logging.info(f"Photo URL: {photo_url}")
-    logging.info(f"Special Health Conditions: {special_conditions}")
-    logging.info(f"Current Weight (lbs): {current_weight_lbs} | (kg): {current_weight_kg}")
-    logging.info(f"Desired Weight (lbs): {desired_weight_lbs} | (kg): {desired_weight_kg}")
+    logging.info(f"Age: {age}")
+    logging.info(f"Desired Weight: {desired_weight_lbs} lbs")
+    logging.info(f"Generated Image URL: {image_url}")
     logging.info("======================")
 
-    # ------------------------
-    # Send confirmation email
-    # ------------------------
+    # Send email
     if email:
         email_body = f"""
-        Hi {first_name},
+Hi {first_name},
 
-        Thanks for submitting your fitness form!
+Thanks for submitting your fitness form!
 
-        Here's a quick summary of what you provided:
-        - Age: {age}
-        - Current Weight: {current_weight_lbs} lbs ({current_weight_kg} kg)
-        - Desired Weight: {desired_weight_lbs} lbs ({desired_weight_kg} kg)
+Here's a quick summary:
+- Age: {age}
+- Current Weight: {current_weight_lbs} lbs ({current_weight_kg} kg)
+- Desired Weight: {desired_weight_lbs} lbs ({desired_weight_kg} kg)
 
-        You'll receive your AI-generated fitness image and plan shortly.
+💡 Here's a preview of your future fitness goal:
+{image_url}
 
-        Cheers,
-        The Fitness AI Team
-        """
+Stay tuned for your workout plan!
+
+Cheers,  
+The DayDream Forge Team
+"""
         send_email(
             to_email=email,
-            subject="Your Fitness Form Submission",
+            subject="Your AI Fitness Image & Summary",
             body=email_body
         )
 
     return jsonify({'status': 'received'}), 200
 
+# ----------------------------
+# App runner
+# ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
-x
+

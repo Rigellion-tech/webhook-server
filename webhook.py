@@ -12,10 +12,6 @@ REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 # testing whether the token is connected or not--
 logging.info(f"REPLICATE_API_TOKEN is set: {bool(REPLICATE_API_TOKEN)}")
 
-if REPLICATE_API_TOKEN:
-    client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-else:
-    client = None
 
 # Configure logging
 logging.basicConfig(
@@ -50,11 +46,12 @@ def send_email(to_email, subject, body):
 # AI Image Generation Function
 # ----------------------------
 def generate_goal_image(prompt):
-    if not client:
-        logging.error("Replicate client not initialized due to missing API token.")
+    if not REPLICATE_API_TOKEN:
+        logging.error("❌ Missing Replicate API token. Cannot generate image.")
         return None
+
     try:
-        output_url = client.run(
+        output_url = replicate.run(
             "lucataco/realistic-vision-v5.1",
             input={
                 "prompt": prompt,
@@ -67,6 +64,7 @@ def generate_goal_image(prompt):
     except Exception as e:
         logging.error("❌ Image generation failed", exc_info=True)
         return None
+
 
 
 # ----------------------------

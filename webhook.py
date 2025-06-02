@@ -92,7 +92,7 @@ def handle_webhook():
     gender = get_field_value('gender')
     photo_url = get_field_value('photo')
     special_conditions = get_field_value('special health conditions')
-    current_weight_lbs = get_field_value("current weight")
+    current_weight_lbs = get_field_value("current body weight")
     desired_weight_lbs = get_field_value("desired weight")
 
     # Calculated fields

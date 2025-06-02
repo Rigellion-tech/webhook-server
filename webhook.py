@@ -55,10 +55,13 @@ def generate_goal_image(prompt, image_url):
 
     try:
         # Fetch the image from URL and convert to base64
+        logging.info(f"Fetching image from URL: {image_url}")
         image = Image.open(BytesIO(requests.get(image_url).content))
         buffered = BytesIO()
         image.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        
+        logging.info(f"Image fetched and converted to base64: {len(img_base64)} characters")
 
         output = replicate.run(
             "stability-ai/stable-diffusion-img2img",  # Please confirm the model path
@@ -69,14 +72,20 @@ def generate_goal_image(prompt, image_url):
                 "num_outputs": 1
             }
         )
+
+        if output:
+            logging.info("✅ Image generation successful")
+        else:
+            logging.error("❌ No output from Replicate")
+        
         return output[0] if output else None
     except Exception as e:
         logging.error("❌ Image generation failed", exc_info=True)
         return None
 
-# ----------------------------
-# Helper functions
-# ----------------------------
+# ---------------------------- 
+# Helper functions 
+# ---------------------------- 
 def calculate_age(birthdate_str):
     try:
         dob = datetime.strptime(birthdate_str, "%Y-%m-%d")
@@ -92,9 +101,9 @@ def pounds_to_kg(lbs):
     except:
         return None
 
-# ----------------------------
-# Webhook route
-# ----------------------------
+# ---------------------------- 
+# Webhook route 
+# ---------------------------- 
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
@@ -184,8 +193,8 @@ The DayDream Forge Team
 
     return jsonify({'status': 'received'}), 200
 
-# ----------------------------
-# App runner
-# ----------------------------
+# ---------------------------- 
+# App runner 
+# ---------------------------- 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

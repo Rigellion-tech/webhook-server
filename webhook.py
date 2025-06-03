@@ -12,12 +12,8 @@ from cloudinary.utils import cloudinary_url
 import cloudinary
 
 # Configure environment-based secrets
-#this line... MAAANNNN!!!!!
-
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
 replicate.api_token = REPLICATE_API_TOKEN
-
-# this one (up)
 
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
@@ -38,28 +34,43 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
-#this thing catches every log.
+
 @app.before_request
 def log_request():
     logging.info(f"🔍 Incoming request: {request.method} {request.path}")
 
-# Your webhook route
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    logging.info("🚀 Webhook endpoint triggered")
-    data = request.get_json()
-    logging.info(f"📦 Raw data: {data}")
-    return "Webhook received", 200
+# ----------------------------
+# Helper functions
+# ----------------------------
+def calculate_age(birthdate_str):
+    try:
+        dob = datetime.strptime(birthdate_str, "%Y-%m-%d")
+        today = datetime.today()
+        return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+    except Exception as e:
+        logging.warning(f"Failed to parse birthdate: {e}")
+        return None
 
-# -----------------------
+def pounds_to_kg(lbs):
+    try:
+        return round(float(lbs) * 0.453592, 2)
+    except:
+        return None
+
+def get_field_value(fields, label_keyword):
+    for field in fields:
+        label = field.get('label', '').lower()
+        value = field.get('value')
+        if label_keyword.lower() in label:
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                return value[0].get('url')
+            return value
+    return None
+
+# ----------------------------
 # Email sending function
-# -----------------------
+# ----------------------------
 def send_email(to_email, subject, body_html):
-    from email.mime.multipart import MIMEMultipart
-    from email.mime.text import MIMEText
-    import smtplib
-    import logging
-
     from_email = "daydreamforgephyton.ai@gmail.com"
 
     msg = MIMEMultipart("alternative")
@@ -67,10 +78,8 @@ def send_email(to_email, subject, body_html):
     msg["To"] = to_email
     msg["Subject"] = subject
 
-    # Optional plain-text fallback
     plain_text = "Your email client does not support HTML emails. Please view this message in a modern client."
 
-    # Attach both plain-text and HTML parts
     msg.attach(MIMEText(plain_text, "plain"))
     msg.attach(MIMEText(body_html, "html"))
 
@@ -83,7 +92,7 @@ def send_email(to_email, subject, body_html):
         logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation with Cloudinary and img2img
+# AI Image Generation
 # ----------------------------
 def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
@@ -91,10 +100,8 @@ def generate_goal_image(prompt, image_url):
         return None
 
     try:
-        # Create Replicate client with token
         replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-        # Upload the image to Cloudinary with resizing to avoid OOM errors
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -103,16 +110,15 @@ def generate_goal_image(prompt, image_url):
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Use Replicate's img2img model
         output = replicate_client.run(
             "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
             input={
                 "image": uploaded_image_url,
                 "prompt": prompt,
-                "strength": 0.5,                # less GPU stress
+                "strength": 0.5,
                 "num_outputs": 1,
                 "guidance_scale": 7.5,
-                "num_inference_steps": 30       # fewer steps = less memory
+                "num_inference_steps": 30
             }
         )
 
@@ -134,28 +140,9 @@ def generate_goal_image(prompt, image_url):
         logging.exception("❌ Unexpected error during image generation")
         return None
 
-
-# ---------------------------- 
-# Helper functions 
-# ---------------------------- 
-def calculate_age(birthdate_str):
-    try:
-        dob = datetime.strptime(birthdate_str, "%Y-%m-%d")
-        today = datetime.today()
-        return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-    except Exception as e:
-        logging.warning(f"Failed to parse birthdate: {e}")
-        return None
-
-def pounds_to_kg(lbs):
-    try:
-        return round(float(lbs) * 0.453592, 2)
-    except:
-        return None
-
-# ---------------------------- 
-# Webhook route 
-# ---------------------------- 
+# ----------------------------
+# Webhook route
+# ----------------------------
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
@@ -171,31 +158,18 @@ def handle_webhook():
 
     fields = data['data']['fields']
 
-    def get_field_value(label_keyword):
-        for field in fields:
-            label = field.get('label', '').lower()
-            value = field.get('value')
-            if label_keyword.lower() in label:
-                if isinstance(value, list) and value and isinstance(value[0], dict):
-                    return value[0].get('url')
-                return value
-        return None
+    first_name = get_field_value(fields, 'first name')
+    email = get_field_value(fields, 'email')
+    gender = get_field_value(fields, 'gender')
+    date_of_birth = get_field_value(fields, 'date of birth')
+    photo_url = get_field_value(fields, 'photo')
+    current_weight_lbs = get_field_value(fields, "current body weight")
+    desired_weight_lbs = get_field_value(fields, "desired weight")
 
-    # Extract fields
-    first_name = get_field_value('first name')
-    email = get_field_value('email')
-    gender = get_field_value('gender')
-    date_of_birth = get_field_value('date of birth')
-    photo_url = get_field_value('photo')
-    current_weight_lbs = get_field_value("current body weight")
-    desired_weight_lbs = get_field_value("desired weight")
-
-    # Derived fields
     age = calculate_age(date_of_birth)
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # Image generation
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
     image_url = generate_goal_image(ai_prompt, photo_url)
 
@@ -220,12 +194,9 @@ Stay tuned for your workout plan!
 Cheers,  
 The DayDream Forge Team
 """
-        send_email(to_email=email, subject="Your AI Fitness Image & Summary", body=email_body)
+        send_email(to_email=email, subject="Your AI Fitness Image & Summary", body_html=email_body)
 
     return jsonify({'status': 'received'}), 200
 
-# ---------------------------- 
-# App runner 
-# ---------------------------- 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

@@ -68,22 +68,28 @@ def generate_goal_image(prompt, image_url):
         return None
 
     try:
-        # Upload the image to Cloudinary
-        upload_result = cloudinary_upload(image_url, folder="webhook_images")
-        uploaded_image_url = upload_result.get("secure_url")
+        # Create Replicate client with token
+        replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
+        # Upload the image to Cloudinary with resizing to avoid OOM errors
+        upload_result = cloudinary_upload(
+            image_url,
+            folder="webhook_images",
+            transformation=[{"width": 512, "height": 512, "crop": "limit"}]
+        )
+        uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Use Replicate stable-diffusion-img2img model with latest version hash
-        output = replicate.run(
+        # Use Replicate's img2img model
+        output = replicate_client.run(
             "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
             input={
                 "image": uploaded_image_url,
                 "prompt": prompt,
-                "strength": 0.75,
+                "strength": 0.5,                # less GPU stress
                 "num_outputs": 1,
-                "guidance_scale": 7.5,  # Optional, improves quality of prompt adherence
-                "num_inference_steps": 50  # Optional, controls quality and time
+                "guidance_scale": 7.5,
+                "num_inference_steps": 30       # fewer steps = less memory
             }
         )
 
@@ -97,10 +103,9 @@ def generate_goal_image(prompt, image_url):
     except replicate.exceptions.ReplicateError as e:
         if "You need to set up billing" in str(e):
             logging.error("❌ Billing not yet active. Wait and retry later.")
-            return None  # or return a fallback image URL
         else:
             logging.exception("❌ Replicate error during image generation")
-            return None
+        return None
 
     except Exception as e:
         logging.exception("❌ Unexpected error during image generation")

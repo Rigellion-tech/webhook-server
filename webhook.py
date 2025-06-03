@@ -92,7 +92,7 @@ def send_email(to_email, subject, body_html):
         logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation
+# AI Image Generation with Cloudinary and img2img (preserve likeness)
 # ----------------------------
 def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
@@ -100,25 +100,31 @@ def generate_goal_image(prompt, image_url):
         return None
 
     try:
+        # Create Replicate client
         replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
+        # Upload the image to Cloudinary with safe resizing
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
-            transformation=[{"width": 512, "height": 512, "crop": "limit"}]
+            transformation=[{"width": 512, "height": 512, "crop": "fit"}]  # better face preservation
         )
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
+        # Extend prompt to preserve likeness
+        enhanced_prompt = f"{prompt}, preserve face, photorealistic, close resemblance to original photo"
+
+        # Call Replicate img2img model
         output = replicate_client.run(
             "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
             input={
                 "image": uploaded_image_url,
-                "prompt": prompt,
-                "strength": 0.5,
+                "prompt": enhanced_prompt,
+                "strength": 0.3,  # Lower strength = more original image retained
                 "num_outputs": 1,
                 "guidance_scale": 7.5,
-                "num_inference_steps": 30
+                "num_inference_steps": 40  # Slightly more steps for better quality
             }
         )
 

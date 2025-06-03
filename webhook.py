@@ -42,14 +42,25 @@ app = Flask(__name__)
 # -----------------------
 # Email sending function
 # -----------------------
-def send_email(to_email, subject, body):
+def send_email(to_email, subject, body_html):
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    import smtplib
+    import logging
+
     from_email = "daydreamforgephyton.ai@gmail.com"
 
-    msg = MIMEMultipart()
+    msg = MIMEMultipart("alternative")
     msg["From"] = from_email
     msg["To"] = to_email
     msg["Subject"] = subject
-    msg.attach(MIMEText(body, "plain"))
+
+    # Optional plain-text fallback
+    plain_text = "Your email client does not support HTML emails. Please view this message in a modern client."
+
+    # Attach both plain-text and HTML parts
+    msg.attach(MIMEText(plain_text, "plain"))
+    msg.attach(MIMEText(body_html, "html"))
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:

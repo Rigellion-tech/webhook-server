@@ -38,6 +38,18 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
+#this thing catches every log.
+@app.before_request
+def log_request():
+    logging.info(f"🔍 Incoming request: {request.method} {request.path}")
+
+# Your webhook route
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    logging.info("🚀 Webhook endpoint triggered")
+    data = request.get_json()
+    logging.info(f"📦 Raw data: {data}")
+    return "Webhook received", 200
 
 # -----------------------
 # Email sending function

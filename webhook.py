@@ -7,16 +7,25 @@ from email.mime.multipart import MIMEMultipart
 import replicate
 import os
 import requests
-import base64
-from io import BytesIO
-from PIL import Image
+from cloudinary.uploader import upload as cloudinary_upload
+from cloudinary.utils import cloudinary_url
+import cloudinary
 
-# Load Replicate API token securely from environment
+# Configure environment-based secrets
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-# testing whether the token is connected or not--
-logging.info(f"REPLICATE_API_TOKEN is set: {bool(REPLICATE_API_TOKEN)}")
+EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
+CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
+CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
+CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 
-# Configure logging
+# Cloudinary configuration
+cloudinary.config(
+    cloud_name=CLOUDINARY_CLOUD_NAME,
+    api_key=CLOUDINARY_API_KEY,
+    api_secret=CLOUDINARY_API_SECRET
+)
+
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -29,7 +38,6 @@ app = Flask(__name__)
 # -----------------------
 def send_email(to_email, subject, body):
     from_email = "daydreamforgephyton.ai@gmail.com"
-    app_password = os.getenv("EMAIL_APP_PASSWORD")  # Securely load email password from environment
 
     msg = MIMEMultipart()
     msg["From"] = from_email
@@ -39,14 +47,14 @@ def send_email(to_email, subject, body):
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(from_email, app_password)
+            server.login(from_email, EMAIL_APP_PASSWORD)
             server.send_message(msg)
-            print("✅ Email sent successfully.")
+            logging.info("✅ Email sent successfully.")
     except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+        logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation Function (Base64 Encoding)
+# AI Image Generation with Cloudinary
 # ----------------------------
 def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
@@ -54,33 +62,30 @@ def generate_goal_image(prompt, image_url):
         return None
 
     try:
-        # Fetch the image from URL and convert to base64
-        logging.info(f"Fetching image from URL: {image_url}")
-        image = Image.open(BytesIO(requests.get(image_url).content))
-        buffered = BytesIO()
-        image.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        
-        logging.info(f"Image fetched and converted to base64: {len(img_base64)} characters")
+        # Upload the image to Cloudinary
+        upload_result = cloudinary_upload(image_url, folder="webhook_images")
+        uploaded_image_url = upload_result.get("secure_url")
 
+        logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
+
+        # Use Replicate model (img2img with URL)
         output = replicate.run(
-            "stability-ai/stable-diffusion-img2img",  # Please confirm the model path
+            "stability-ai/sdxl-inpainting",  # sdxl-inpainting supports prompt+image
             input={
+                "image": uploaded_image_url,
                 "prompt": prompt,
-                "image": img_base64,
-                "strength": 0.75,
-                "num_outputs": 1
+                "mask": None
             }
         )
 
         if output:
             logging.info("✅ Image generation successful")
+            return output[0] if isinstance(output, list) else output
         else:
             logging.error("❌ No output from Replicate")
-        
-        return output[0] if output else None
+            return None
     except Exception as e:
-        logging.error("❌ Image generation failed", exc_info=True)
+        logging.exception("❌ Image generation failed")
         return None
 
 # ---------------------------- 
@@ -119,10 +124,6 @@ def handle_webhook():
 
     fields = data['data']['fields']
 
-    logging.info("=== All Form Fields ===")
-    for field in fields:
-        logging.info(f"Label: {field.get('label')} | Type: {field.get('type')} | Value: {field.get('value')}")
-
     def get_field_value(label_keyword):
         for field in fields:
             label = field.get('label', '').lower()
@@ -135,37 +136,24 @@ def handle_webhook():
 
     # Extract fields
     first_name = get_field_value('first name')
-    last_name = get_field_value('last name')
-    phone_number = get_field_value('phone number')
-    date_of_birth = get_field_value('date of birth')
     email = get_field_value('email')
-    home_address = get_field_value('home address')
-    city_state_zip = get_field_value('city | state | zip')
     gender = get_field_value('gender')
+    date_of_birth = get_field_value('date of birth')
     photo_url = get_field_value('photo')
-    special_conditions = get_field_value('special health conditions')
     current_weight_lbs = get_field_value("current body weight")
     desired_weight_lbs = get_field_value("desired weight")
 
-    # Calculated fields
+    # Derived fields
     age = calculate_age(date_of_birth)
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # Generate image
+    # Image generation
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
     image_url = generate_goal_image(ai_prompt, photo_url)
 
-    # Logging
-    logging.info("=== New Submission ===")
-    logging.info(f"First Name: {first_name}")
-    logging.info(f"Email: {email}")
-    logging.info(f"Age: {age}")
-    logging.info(f"Desired Weight: {desired_weight_lbs} lbs")
     logging.info(f"Generated Image URL: {image_url}")
-    logging.info("======================")
 
-    # Send email
     if email:
         email_body = f"""
 Hi {first_name},
@@ -185,11 +173,7 @@ Stay tuned for your workout plan!
 Cheers,  
 The DayDream Forge Team
 """
-        send_email(
-            to_email=email,
-            subject="Your AI Fitness Image & Summary",
-            body=email_body
-        )
+        send_email(to_email=email, subject="Your AI Fitness Image & Summary", body=email_body)
 
     return jsonify({'status': 'received'}), 200
 

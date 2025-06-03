@@ -68,16 +68,16 @@ def generate_goal_image(prompt, image_url):
 
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Use Replicate model: stability-ai/stable-diffusion-img2img
+        # Use Replicate stable-diffusion-img2img model with latest version hash
         output = replicate.run(
-            "stability-ai/stable-diffusion-img2img",
+            "stability-ai/stable-diffusion-img2img:15a3689e",
             input={
                 "image": uploaded_image_url,
                 "prompt": prompt,
-                "strength": 0.75,          # Adjust how much it alters the original
+                "strength": 0.75,
                 "num_outputs": 1,
-                "guidance_scale": 7.5,     # Optional: controls adherence to the prompt
-                "scheduler": "DDIM"        # Optional: "DDIM", "PNDM", "K_EULER", etc.
+                "guidance_scale": 7.5,  # Optional, improves quality of prompt adherence
+                "num_inference_steps": 50  # Optional, controls quality and time
             }
         )
 
@@ -90,6 +90,7 @@ def generate_goal_image(prompt, image_url):
     except Exception as e:
         logging.exception("❌ Image generation failed")
         return None
+
 
 # ---------------------------- 
 # Helper functions 

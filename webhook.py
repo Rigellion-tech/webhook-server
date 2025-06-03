@@ -12,7 +12,13 @@ from cloudinary.utils import cloudinary_url
 import cloudinary
 
 # Configure environment-based secrets
+#this line... MAAANNNN!!!!!
+
 REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+replicate.api_token = REPLICATE_API_TOKEN
+
+# this one (up)
+
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")

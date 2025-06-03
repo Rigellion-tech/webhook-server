@@ -54,7 +54,7 @@ def send_email(to_email, subject, body):
         logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation with Cloudinary
+# AI Image Generation with Cloudinary and img2img
 # ----------------------------
 def generate_goal_image(prompt, image_url):
     if not REPLICATE_API_TOKEN:
@@ -68,13 +68,16 @@ def generate_goal_image(prompt, image_url):
 
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Use Replicate model (img2img with URL)
+        # Use Replicate model: stability-ai/stable-diffusion-img2img
         output = replicate.run(
-            "stability-ai/sdxl-inpainting",  # sdxl-inpainting supports prompt+image
+            "stability-ai/stable-diffusion-img2img",
             input={
                 "image": uploaded_image_url,
                 "prompt": prompt,
-                "mask": None
+                "strength": 0.75,          # Adjust how much it alters the original
+                "num_outputs": 1,
+                "guidance_scale": 7.5,     # Optional: controls adherence to the prompt
+                "scheduler": "DDIM"        # Optional: "DDIM", "PNDM", "K_EULER", etc.
             }
         )
 

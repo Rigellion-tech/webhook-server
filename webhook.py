@@ -70,7 +70,7 @@ def generate_goal_image(prompt, image_url):
 
         # Use Replicate stable-diffusion-img2img model with latest version hash
         output = replicate.run(
-            "stability-ai/stable-diffusion-img2img:15a3689e",
+            "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
             input={
                 "image": uploaded_image_url,
                 "prompt": prompt,

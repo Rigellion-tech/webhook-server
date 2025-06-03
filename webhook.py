@@ -87,8 +87,17 @@ def generate_goal_image(prompt, image_url):
         else:
             logging.error("❌ No output from Replicate")
             return None
+
+    except replicate.exceptions.ReplicateError as e:
+        if "You need to set up billing" in str(e):
+            logging.error("❌ Billing not yet active. Wait and retry later.")
+            return None  # or return a fallback image URL
+        else:
+            logging.exception("❌ Replicate error during image generation")
+            return None
+
     except Exception as e:
-        logging.exception("❌ Image generation failed")
+        logging.exception("❌ Unexpected error during image generation")
         return None
 
 

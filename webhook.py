@@ -118,14 +118,14 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         else:
             body_prompt = "stronger, athletic build"
 
-        gender_prompt = ""
-        if gender:
-            if gender.lower() in ["male", "man"]:
+        # 🔧 Safe gender prompt generation
+        gender_prompt = "realistic human body appearance"
+        if isinstance(gender, str):
+            g = gender.lower()
+            if g in ["male", "man"]:
                 gender_prompt = "masculine features, realistic male fitness aesthetic"
-            elif gender.lower() in ["female", "woman"]:
+            elif g in ["female", "woman"]:
                 gender_prompt = "feminine features, realistic female fitness aesthetic"
-            else:
-                gender_prompt = "realistic human body appearance"
 
         enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
 
@@ -155,6 +155,7 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     except Exception as e:
         logging.exception("❌ Unexpected error during image generation")
         return None
+
 
 # ----------------------------
 # Webhook route

@@ -220,14 +220,15 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
             payload = {
                 "prompt": enhanced_prompt,
                 "image": base64_img,
-                "model": "revAnimated_v122",
+                "model": "realisticVision_v51",  # ✅ Safe for controlnet
                 "controlnet_model": "control_v11p_sd15_openpose",
-                "strength": 0.4,
                 "controlnet_type": "pose",
+                "strength": 0.4,
                 "negative_prompt": "cartoon, blurry, ugly, distorted face, low quality",
                 "guidance": 7,
                 "num_images": 1
             }
+
     
             response = requests.post("https://api.getimg.ai/v1/stable-diffusion/image-to-image", headers=headers, json=payload)
     

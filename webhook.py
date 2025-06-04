@@ -109,6 +109,9 @@ def send_email(to_email, subject, body_html):
 # ----------------------------
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
+    segmind_calls = segmind_calls if 'segmind_calls' in globals() else 0
+    segmind_failures = segmind_failures if 'segmind_failures' in globals() else 0
+    last_segmind_rate_limit_time = last_segmind_rate_limit_time if 'last_segmind_rate_limit_time' in globals() else None
 
     def build_prompt():
         try:
@@ -151,6 +154,7 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         return final_prompt
 
     def call_segmind(enhanced_prompt, uploaded_image_url):
+        global segmind_calls, segmind_failures, last_segmind_rate_limit_time
         try:
             segmind_calls += 1
             headers = {

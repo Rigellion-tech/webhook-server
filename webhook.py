@@ -4,7 +4,6 @@ from datetime import datetime
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import replicate
 import os
 import requests
 from cloudinary.uploader import upload as cloudinary_upload
@@ -12,13 +11,12 @@ from cloudinary.utils import cloudinary_url
 import cloudinary
 
 # Configure environment-based secrets
-REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
-replicate.api_token = REPLICATE_API_TOKEN
-
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
 CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
+SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
+GETIMG_API_KEY = os.getenv("GETIMG_API_KEY")
 
 # Cloudinary configuration
 cloudinary.config(
@@ -32,6 +30,12 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# API usage counters
+segmind_calls = 0
+segmind_failures = 0
+getimg_calls = 0
+getimg_failures = 0
 
 app = Flask(__name__)
 
@@ -92,16 +96,11 @@ def send_email(to_email, subject, body_html):
         logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation with ControlNet Identity Model
+# AI Image Generation
 # ----------------------------
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
-    if not REPLICATE_API_TOKEN:
-        logging.error("❌ Missing Replicate API token. Cannot generate image.")
-        return None
-
+    global segmind_calls, segmind_failures
     try:
-        replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
-
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -118,44 +117,47 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         else:
             body_prompt = "stronger, athletic build"
 
-        # 🔧 Safe gender prompt generation
-        gender_prompt = "realistic human body appearance"
-        if isinstance(gender, str):
-            g = gender.lower()
-            if g in ["male", "man"]:
+        gender_prompt = ""
+        if gender:
+            if gender.lower() in ["male", "man"]:
                 gender_prompt = "masculine features, realistic male fitness aesthetic"
-            elif g in ["female", "woman"]:
+            elif gender.lower() in ["female", "woman"]:
                 gender_prompt = "feminine features, realistic female fitness aesthetic"
+            else:
+                gender_prompt = "realistic human body appearance"
 
         enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
 
-        output = replicate_client.run(
-            "tencentarc/controlnet-identity-photo-maker:36b22f894e2f39646e354fc68c9e8ef86b7c4a2b321cf24c167fb8a92637629b",
-            input={
-                "image": uploaded_image_url,
-                "prompt": enhanced_prompt,
-                "a_prompt": "best quality, extremely detailed",
-                "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
-                "num_samples": 1,
-                "strength": 0.3,
-                "guess_mode": False
-            }
-        )
-
-        if output:
-            logging.info("✅ Image generation successful using ControlNet Identity Photo Maker")
-            return output[0] if isinstance(output, list) else output
+        segmind_calls += 1
+        headers = {
+            "Authorization": f"Bearer {SEGMIND_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "prompt": enhanced_prompt,
+            "image_url": uploaded_image_url,
+            "a_prompt": "best quality, extremely detailed",
+            "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
+            "num_samples": 1,
+            "strength": 0.3,
+            "guess_mode": False
+        }
+        response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            image_out = result.get("output")
+            if isinstance(image_out, list):
+                return image_out[0]
+            return image_out
         else:
-            logging.error("❌ No output from ControlNet model")
+            segmind_failures += 1
+            logging.error(f"❌ Segmind API error ({response.status_code}): {response.text}")
             return None
 
-    except replicate.exceptions.ReplicateError as e:
-        logging.exception("❌ Replicate error during image generation")
-        return None
     except Exception as e:
+        segmind_failures += 1
         logging.exception("❌ Unexpected error during image generation")
         return None
-
 
 # ----------------------------
 # Webhook route
@@ -191,6 +193,7 @@ def handle_webhook():
     image_url = generate_goal_image(ai_prompt, photo_url, gender=gender, current_weight=current_weight_lbs, desired_weight=desired_weight_lbs)
 
     logging.info(f"Generated Image URL: {image_url}")
+    logging.info(f"📊 Segmind calls: {segmind_calls}, Failures: {segmind_failures}")
 
     if email:
         email_body = f"""

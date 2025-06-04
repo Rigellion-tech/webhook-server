@@ -66,8 +66,11 @@ def get_field_value(fields, label_keyword):
         label = field.get('label', '').lower()
         value = field.get('value')
         if label_keyword.lower() in label:
-            if isinstance(value, list) and value and isinstance(value[0], dict):
-                return value[0].get('url')
+            if isinstance(value, list):
+                if value and isinstance(value[0], dict):
+                    return value[0].get('url')
+                elif value and isinstance(value[0], str):
+                    return value[0]  # Fix: return the first string from list
             return value
     return None
 

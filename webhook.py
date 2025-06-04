@@ -111,23 +111,45 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
 
     def build_prompt():
+    try:
         weight_diff = float(desired_weight or 0) - float(current_weight or 0)
-        body_prompt = (
-            "similar body type" if abs(weight_diff) < 2 else
-            "slimmer, toned, healthy appearance" if weight_diff < 0 else
-            "stronger, athletic build"
-        )
-        gender_prompt = ""
-        if gender:
-            gender = gender.lower()
-            if gender in ["male", "man"]:
-                gender_prompt = "masculine features, realistic male fitness aesthetic"
-            elif gender in ["female", "woman"]:
-                gender_prompt = "feminine features, realistic female fitness aesthetic"
-            else:
-                gender_prompt = "realistic human body appearance"
+    except Exception:
+        logging.warning("⚠️ Invalid weight values provided. Defaulting to 0.")
+        weight_diff = 0
 
-        return f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
+    # Determine body prompt
+    if abs(weight_diff) < 2:
+        body_prompt = "similar body type"
+    elif weight_diff < 0:
+        body_prompt = "slimmer, toned, healthy appearance"
+    else:
+        body_prompt = "stronger, athletic build"
+
+    # Determine gender prompt
+    gender_prompt = ""
+    if gender:
+        g = gender.lower()
+        if g in ["male", "man"]:
+            gender_prompt = "masculine features, realistic male fitness aesthetic"
+        elif g in ["female", "woman"]:
+            gender_prompt = "feminine features, realistic female fitness aesthetic"
+        else:
+            gender_prompt = "realistic human body appearance"
+    else:
+        gender_prompt = "realistic human body appearance"
+
+    # Log details
+    logging.info(f"🧠 Weight diff: {weight_diff} ➝ Body prompt: '{body_prompt}'")
+    logging.info(f"🧬 Gender input: '{gender}' ➝ Gender prompt: '{gender_prompt}'")
+
+    final_prompt = (
+        f"{prompt}, {body_prompt}, {gender_prompt}, "
+        "photorealistic, preserve face, close resemblance to original photo"
+    )
+
+    logging.info(f"📝 Final prompt: {final_prompt}")
+    return final_prompt
+
 
     def call_segmind(enhanced_prompt, uploaded_image_url):
         try:
@@ -231,8 +253,6 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     except Exception as e:
         logging.exception("❌ Unexpected error in generate_goal_image")
         return None
-
-
 # ----------------------------
 # Webhook route
 # ----------------------------

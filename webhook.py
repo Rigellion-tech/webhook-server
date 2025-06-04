@@ -9,6 +9,7 @@ import requests
 from cloudinary.uploader import upload as cloudinary_upload
 from cloudinary.utils import cloudinary_url
 import cloudinary
+import time
 
 # Configure environment-based secrets
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
@@ -17,6 +18,10 @@ CLOUDINARY_API_KEY = os.getenv("CLOUDINARY_API_KEY")
 CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
 GETIMG_API_KEY = os.getenv("GETIMG_API_KEY")
+
+# Keep track of when we got rate limited
+last_segmind_rate_limit_time = None
+SEGMIND_COOLDOWN_SECONDS = 3600  # 1 hour cooldown
 
 # Cloudinary configuration
 cloudinary.config(
@@ -102,9 +107,17 @@ def send_email(to_email, subject, body_html):
 # AI Image Generation
 # ----------------------------
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
-    global segmind_calls, segmind_failures
+    global segmind_calls, segmind_failures, last_segmind_rate_limit_time
+
+    # Respect cooldown if previously rate-limited
+    if last_segmind_rate_limit_time:
+        seconds_since = time.time() - last_segmind_rate_limit_time
+        if seconds_since < SEGMIND_COOLDOWN_SECONDS:
+            logging.warning("⚠️ Skipping Segmind call due to cooldown. Try again in %d seconds.", SEGMIND_COOLDOWN_SECONDS - int(seconds_since))
+            return None
+
     try:
-        # Upload original image to Cloudinary
+        # Upload to Cloudinary
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -113,16 +126,15 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Generate body prompt based on weight difference
+        # Weight logic
         weight_diff = float(desired_weight or 0) - float(current_weight or 0)
-        if abs(weight_diff) < 2:
-            body_prompt = "similar body type"
-        elif weight_diff < 0:
-            body_prompt = "slimmer, toned, healthy appearance"
-        else:
-            body_prompt = "stronger, athletic build"
+        body_prompt = (
+            "similar body type" if abs(weight_diff) < 2 else
+            "slimmer, toned, healthy appearance" if weight_diff < 0 else
+            "stronger, athletic build"
+        )
 
-        # Gender-specific style prompt
+        # Gender prompt
         gender_prompt = ""
         if gender:
             gender = gender.lower()
@@ -133,19 +145,18 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
             else:
                 gender_prompt = "realistic human body appearance"
 
-        # Full AI prompt composition
+        # Compose final prompt
         enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
 
-        # Segmind API request
+        # Prepare API call
         segmind_calls += 1
         headers = {
             "Authorization": f"Bearer {SEGMIND_API_KEY}",
             "Content-Type": "application/json"
         }
-
         payload = {
             "prompt": enhanced_prompt,
-            "face_image": uploaded_image_url,  # ✅ Correct key
+            "face_image": uploaded_image_url,
             "a_prompt": "best quality, extremely detailed",
             "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
             "num_samples": 1,
@@ -157,15 +168,19 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 
         if response.status_code == 200:
             result = response.json()
-            image_out = result.get("output")
-            if isinstance(image_out, list):
-                return image_out[0]
-            return image_out
+            output = result.get("output")
+            return output[0] if isinstance(output, list) else output
+
+        elif response.status_code == 429:
+            # Too many requests — apply cooldown
+            last_segmind_rate_limit_time = time.time()
+            segmind_failures += 1
+            logging.warning("🚫 Segmind rate limited us (429). Cooling down for 1 hour.")
+            return None  # Optionally, fall back to Getimg here
+
         else:
             segmind_failures += 1
-            logging.error(f"❌ Segmind API error ({response.status_code}): {response.text}")
-            logging.error(f"Headers sent: {headers}")
-            logging.error(f"Payload sent: {payload}")
+            logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
             return None
 
     except Exception as e:

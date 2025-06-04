@@ -10,6 +10,9 @@ from cloudinary.uploader import upload as cloudinary_upload
 from cloudinary.utils import cloudinary_url
 import cloudinary
 import time
+import base64
+from io import BytesIO
+from PIL import Image
 
 # Configure environment-based secrets
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
@@ -155,12 +158,19 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 
     def call_segmind(enhanced_prompt, uploaded_image_url):
         global segmind_calls, segmind_failures, last_segmind_rate_limit_time
+        segmind_calls += 1
+    
         try:
-            segmind_calls += 1
+            api_key = os.environ.get('SEGMIND_API_KEY')
+            if not api_key:
+                logging.error("🔐 Segmind API key missing.")
+                return None
+    
             headers = {
-                "Authorization": f"Bearer {SEGMIND_API_KEY}",
+                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
+    
             payload = {
                 "prompt": enhanced_prompt,
                 "face_image": uploaded_image_url,
@@ -170,37 +180,46 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
                 "strength": 0.3,
                 "guess_mode": False
             }
-
+    
             response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
-
+    
             if response.status_code == 200:
                 result = response.json()
                 return result.get("output")[0] if isinstance(result.get("output"), list) else result.get("output")
+    
             elif response.status_code == 429:
                 last_segmind_rate_limit_time = time.time()
                 segmind_failures += 1
-                logging.warning("🚫 Segmind rate-limited us (429). Cooling down for 1 hour.")
+                logging.warning("🚫 Segmind rate-limited (429). Cooling down.")
             elif response.status_code == 401:
                 segmind_failures += 1
-                logging.error("🔐 Segmind authentication failed (401). Check API key.")
+                logging.error("🔐 Segmind auth failed (401). Check your API key.")
             else:
                 segmind_failures += 1
                 logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
-        except Exception as e:
+    
+        except Exception:
             segmind_failures += 1
-            logging.exception("❌ Segmind exception during image generation")
-
+            logging.exception("❌ Segmind exception")
+    
         return None
+
 
     def call_getimg(enhanced_prompt, uploaded_image_url):
         try:
+            # Download image and convert to base64
+            img_response = requests.get(uploaded_image_url)
+            img_response.raise_for_status()
+            base64_img = base64.b64encode(img_response.content).decode('utf-8')
+    
             headers = {
-                "Authorization": f"Bearer {GETIMG_API_KEY}",
+                "Authorization": f"Bearer {os.environ.get('GETIMG_API_KEY')}",
                 "Content-Type": "application/json"
             }
+    
             payload = {
                 "prompt": enhanced_prompt,
-                "init_image": uploaded_image_url,
+                "image": base64_img,
                 "model": "revAnimated_v122",
                 "controlnet_model": "control_v11p_sd15_openpose",
                 "strength": 0.4,
@@ -209,18 +228,20 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
                 "guidance": 7,
                 "num_images": 1
             }
-
+    
             response = requests.post("https://api.getimg.ai/v1/stable-diffusion/image-to-image", headers=headers, json=payload)
-
+    
             if response.status_code == 200:
                 result = response.json()
                 return result["data"][0]["url"]
             else:
                 logging.error(f"❌ Getimg API error {response.status_code}: {response.text}")
-        except Exception as e:
-            logging.exception("❌ Getimg exception during fallback generation")
-
+    
+        except Exception:
+            logging.exception("❌ Getimg exception")
+    
         return None
+
 
     # Cooldown for Segmind
     if last_segmind_rate_limit_time:

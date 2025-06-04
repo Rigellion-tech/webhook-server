@@ -109,15 +109,15 @@ def send_email(to_email, subject, body_html):
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
 
-    # Respect cooldown if previously rate-limited
+    # Respect cooldown if rate-limited recently
     if last_segmind_rate_limit_time:
         seconds_since = time.time() - last_segmind_rate_limit_time
         if seconds_since < SEGMIND_COOLDOWN_SECONDS:
-            logging.warning("⚠️ Skipping Segmind call due to cooldown. Try again in %d seconds.", SEGMIND_COOLDOWN_SECONDS - int(seconds_since))
+            logging.warning("⚠️ Skipping Segmind call due to cooldown. Retry in %d seconds.", SEGMIND_COOLDOWN_SECONDS - int(seconds_since))
             return None
 
     try:
-        # Upload to Cloudinary
+        # Upload image to Cloudinary
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -126,29 +126,35 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Weight logic
+        # Body transformation logic
         weight_diff = float(desired_weight or 0) - float(current_weight or 0)
-        body_prompt = (
-            "similar body type" if abs(weight_diff) < 2 else
-            "slimmer, toned, healthy appearance" if weight_diff < 0 else
-            "stronger, athletic build"
-        )
+        if abs(weight_diff) < 2:
+            body_prompt = "similar body type"
+        elif weight_diff < 0:
+            body_prompt = "slimmer, toned, healthy appearance"
+        else:
+            body_prompt = "stronger, athletic build"
 
-        # Gender prompt
+        # Gender-specific prompt
         gender_prompt = ""
         if gender:
             gender = gender.lower()
             if gender in ["male", "man"]:
-                gender_prompt = "masculine features, realistic male fitness aesthetic"
+                gender_prompt = "masculine features, realistic male physique"
             elif gender in ["female", "woman"]:
-                gender_prompt = "feminine features, realistic female fitness aesthetic"
+                gender_prompt = "feminine features, realistic female physique"
             else:
-                gender_prompt = "realistic human body appearance"
+                gender_prompt = "realistic human appearance"
 
-        # Compose final prompt
-        enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
+        # Final enhanced prompt for realism and identity
+        enhanced_prompt = (
+            f"{prompt}, {body_prompt}, {gender_prompt}, "
+            "realistic skin texture, studio lighting, shallow depth of field, "
+            "face detail preserved, similar facial identity, high quality, full body shot, "
+            "in a professional photoshoot setup"
+        )
 
-        # Prepare API call
+        # Prepare Segmind API call
         segmind_calls += 1
         headers = {
             "Authorization": f"Bearer {SEGMIND_API_KEY}",
@@ -157,8 +163,8 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         payload = {
             "prompt": enhanced_prompt,
             "face_image": uploaded_image_url,
-            "a_prompt": "best quality, extremely detailed",
-            "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
+            "a_prompt": "best quality, photorealistic, sharp focus, high detail, 4K, vibrant lighting",
+            "n_prompt": "blurry, cartoon, anime, extra limbs, bad proportions, distorted face",
             "num_samples": 1,
             "strength": 0.3,
             "guess_mode": False
@@ -172,11 +178,11 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
             return output[0] if isinstance(output, list) else output
 
         elif response.status_code == 429:
-            # Too many requests — apply cooldown
+            # Rate-limited: set cooldown
             last_segmind_rate_limit_time = time.time()
             segmind_failures += 1
-            logging.warning("🚫 Segmind rate limited us (429). Cooling down for 1 hour.")
-            return None  # Optionally, fall back to Getimg here
+            logging.warning("🚫 Rate limited by Segmind (429). Cooling down for 1 hour.")
+            return None
 
         else:
             segmind_failures += 1
@@ -185,9 +191,8 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 
     except Exception as e:
         segmind_failures += 1
-        logging.exception("❌ Unexpected error during image generation")
+        logging.exception("❌ Exception during image generation")
         return None
-
 
 # ----------------------------
 # Webhook route

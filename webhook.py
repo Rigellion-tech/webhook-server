@@ -100,10 +100,8 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         return None
 
     try:
-        # Create Replicate client
         replicate_client = replicate.Client(api_token=REPLICATE_API_TOKEN)
 
-        # Upload the image to Cloudinary with safe resizing
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -112,7 +110,6 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Calculate weight difference
         weight_diff = float(desired_weight or 0) - float(current_weight or 0)
         if abs(weight_diff) < 2:
             body_prompt = "similar body type"
@@ -121,7 +118,6 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         else:
             body_prompt = "stronger, athletic build"
 
-        # Gender-specific details
         gender_prompt = ""
         if gender:
             if gender.lower() in ["male", "man"]:
@@ -131,17 +127,15 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
             else:
                 gender_prompt = "realistic human body appearance"
 
-        # Construct enhanced prompt
         enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
 
-        # Call the ControlNet model
         output = replicate_client.run(
             "tencentarc/controlnet-identity-photo-maker:36b22f894e2f39646e354fc68c9e8ef86b7c4a2b321cf24c167fb8a92637629b",
             input={
                 "image": uploaded_image_url,
                 "prompt": enhanced_prompt,
                 "a_prompt": "best quality, extremely detailed",
-                "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy, lgbt, drag, makeup",
+                "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
                 "num_samples": 1,
                 "strength": 0.3,
                 "guess_mode": False
@@ -193,7 +187,7 @@ def handle_webhook():
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
-    image_url = generate_goal_image(ai_prompt, photo_url)
+    image_url = generate_goal_image(ai_prompt, photo_url, gender=gender, current_weight=current_weight_lbs, desired_weight=desired_weight_lbs)
 
     logging.info(f"Generated Image URL: {image_url}")
 
@@ -205,11 +199,12 @@ Thanks for submitting your fitness form!
 
 Here's a quick summary:
 - Age: {age}
+- Gender: {gender}
 - Current Weight: {current_weight_lbs} lbs ({current_weight_kg} kg)
 - Desired Weight: {desired_weight_lbs} lbs ({desired_weight_kg} kg)
 
 💡 Here's a preview of your future fitness goal:
-{image_url}
+<img src=\"{image_url}\" alt=\"AI generated fitness goal\" style=\"max-width: 100%; height: auto;\" />
 
 Stay tuned for your workout plan!
 

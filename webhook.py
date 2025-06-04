@@ -92,9 +92,9 @@ def send_email(to_email, subject, body_html):
         logging.error(f"❌ Failed to send email: {e}")
 
 # ----------------------------
-# AI Image Generation with Cloudinary and img2img (preserve likeness)
+# AI Image Generation with ControlNet Identity Model
 # ----------------------------
-def generate_goal_image(prompt, image_url):
+def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     if not REPLICATE_API_TOKEN:
         logging.error("❌ Missing Replicate API token. Cannot generate image.")
         return None
@@ -107,41 +107,57 @@ def generate_goal_image(prompt, image_url):
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
-            transformation=[{"width": 512, "height": 512, "crop": "fit"}]  # better face preservation
+            transformation=[{"width": 512, "height": 512, "crop": "fit"}]
         )
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Extend prompt to preserve likeness
-        enhanced_prompt = f"{prompt}, preserve face, photorealistic, close resemblance to original photo"
+        # Calculate weight difference
+        weight_diff = float(desired_weight or 0) - float(current_weight or 0)
+        if abs(weight_diff) < 2:
+            body_prompt = "similar body type"
+        elif weight_diff < 0:
+            body_prompt = "slimmer, toned, healthy appearance"
+        else:
+            body_prompt = "stronger, athletic build"
 
-        # Call Replicate img2img model
+        # Gender-specific details
+        gender_prompt = ""
+        if gender:
+            if gender.lower() in ["male", "man"]:
+                gender_prompt = "masculine features, realistic male fitness aesthetic"
+            elif gender.lower() in ["female", "woman"]:
+                gender_prompt = "feminine features, realistic female fitness aesthetic"
+            else:
+                gender_prompt = "realistic human body appearance"
+
+        # Construct enhanced prompt
+        enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
+
+        # Call the ControlNet model
         output = replicate_client.run(
-            "stability-ai/stable-diffusion-img2img:15a3689ee13b0d2616e98820eca31d4c3abcd36672df6afce5cb6feb1d66087d",
+            "tencentarc/controlnet-identity-photo-maker:36b22f894e2f39646e354fc68c9e8ef86b7c4a2b321cf24c167fb8a92637629b",
             input={
                 "image": uploaded_image_url,
                 "prompt": enhanced_prompt,
-                "strength": 0.3,  # Lower strength = more original image retained
-                "num_outputs": 1,
-                "guidance_scale": 7.5,
-                "num_inference_steps": 40  # Slightly more steps for better quality
+                "a_prompt": "best quality, extremely detailed",
+                "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy, lgbt, drag, makeup",
+                "num_samples": 1,
+                "strength": 0.3,
+                "guess_mode": False
             }
         )
 
         if output:
-            logging.info("✅ Image generation successful")
+            logging.info("✅ Image generation successful using ControlNet Identity Photo Maker")
             return output[0] if isinstance(output, list) else output
         else:
-            logging.error("❌ No output from Replicate")
+            logging.error("❌ No output from ControlNet model")
             return None
 
     except replicate.exceptions.ReplicateError as e:
-        if "You need to set up billing" in str(e):
-            logging.error("❌ Billing not yet active. Wait and retry later.")
-        else:
-            logging.exception("❌ Replicate error during image generation")
+        logging.exception("❌ Replicate error during image generation")
         return None
-
     except Exception as e:
         logging.exception("❌ Unexpected error during image generation")
         return None

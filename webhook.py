@@ -109,15 +109,101 @@ def send_email(to_email, subject, body_html):
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
 
-    # Respect cooldown if rate-limited recently
+    def build_prompt():
+        weight_diff = float(desired_weight or 0) - float(current_weight or 0)
+        body_prompt = (
+            "similar body type" if abs(weight_diff) < 2 else
+            "slimmer, toned, healthy appearance" if weight_diff < 0 else
+            "stronger, athletic build"
+        )
+        gender_prompt = ""
+        if gender:
+            gender = gender.lower()
+            if gender in ["male", "man"]:
+                gender_prompt = "masculine features, realistic male fitness aesthetic"
+            elif gender in ["female", "woman"]:
+                gender_prompt = "feminine features, realistic female fitness aesthetic"
+            else:
+                gender_prompt = "realistic human body appearance"
+
+        return f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
+
+    def call_segmind(enhanced_prompt, uploaded_image_url):
+        try:
+            segmind_calls += 1
+            headers = {
+                "Authorization": f"Bearer {SEGMIND_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "prompt": enhanced_prompt,
+                "face_image": uploaded_image_url,
+                "a_prompt": "best quality, extremely detailed",
+                "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
+                "num_samples": 1,
+                "strength": 0.3,
+                "guess_mode": False
+            }
+
+            response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
+
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("output")[0] if isinstance(result.get("output"), list) else result.get("output")
+            elif response.status_code == 429:
+                last_segmind_rate_limit_time = time.time()
+                segmind_failures += 1
+                logging.warning("🚫 Segmind rate-limited us (429). Cooling down for 1 hour.")
+            elif response.status_code == 401:
+                segmind_failures += 1
+                logging.error("🔐 Segmind authentication failed (401). Check API key.")
+            else:
+                segmind_failures += 1
+                logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
+        except Exception as e:
+            segmind_failures += 1
+            logging.exception("❌ Segmind exception during image generation")
+
+        return None
+
+    def call_getimg(enhanced_prompt, uploaded_image_url):
+        try:
+            headers = {
+                "Authorization": f"Bearer {GETIMG_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "prompt": enhanced_prompt,
+                "init_image": uploaded_image_url,
+                "model": "revAnimated_v122",
+                "controlnet_model": "control_v11p_sd15_openpose",
+                "strength": 0.4,
+                "controlnet_type": "pose",
+                "negative_prompt": "cartoon, blurry, ugly, distorted face, low quality",
+                "guidance": 7,
+                "num_images": 1
+            }
+
+            response = requests.post("https://api.getimg.ai/v1/stable-diffusion/image-to-image", headers=headers, json=payload)
+
+            if response.status_code == 200:
+                result = response.json()
+                return result["data"][0]["url"]
+            else:
+                logging.error(f"❌ Getimg API error {response.status_code}: {response.text}")
+        except Exception as e:
+            logging.exception("❌ Getimg exception during fallback generation")
+
+        return None
+
+    # Cooldown for Segmind
     if last_segmind_rate_limit_time:
         seconds_since = time.time() - last_segmind_rate_limit_time
         if seconds_since < SEGMIND_COOLDOWN_SECONDS:
-            logging.warning("⚠️ Skipping Segmind call due to cooldown. Retry in %d seconds.", SEGMIND_COOLDOWN_SECONDS - int(seconds_since))
+            logging.warning("⚠️ Segmind cooldown active. %d seconds remaining.", SEGMIND_COOLDOWN_SECONDS - int(seconds_since))
             return None
 
     try:
-        # Upload image to Cloudinary
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -126,73 +212,25 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
-        # Body transformation logic
-        weight_diff = float(desired_weight or 0) - float(current_weight or 0)
-        if abs(weight_diff) < 2:
-            body_prompt = "similar body type"
-        elif weight_diff < 0:
-            body_prompt = "slimmer, toned, healthy appearance"
-        else:
-            body_prompt = "stronger, athletic build"
+        enhanced_prompt = build_prompt()
 
-        # Gender-specific prompt
-        gender_prompt = ""
-        if gender:
-            gender = gender.lower()
-            if gender in ["male", "man"]:
-                gender_prompt = "masculine features, realistic male physique"
-            elif gender in ["female", "woman"]:
-                gender_prompt = "feminine features, realistic female physique"
-            else:
-                gender_prompt = "realistic human appearance"
+        # Try Segmind first
+        result = call_segmind(enhanced_prompt, uploaded_image_url)
+        if result:
+            logging.info("🎯 Image generated via Segmind.")
+            return result
 
-        # Final enhanced prompt for realism and identity
-        enhanced_prompt = (
-            f"{prompt}, {body_prompt}, {gender_prompt}, "
-            "realistic skin texture, studio lighting, shallow depth of field, "
-            "face detail preserved, similar facial identity, high quality, full body shot, "
-            "in a professional photoshoot setup"
-        )
-
-        # Prepare Segmind API call
-        segmind_calls += 1
-        headers = {
-            "Authorization": f"Bearer {SEGMIND_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "prompt": enhanced_prompt,
-            "face_image": uploaded_image_url,
-            "a_prompt": "best quality, photorealistic, sharp focus, high detail, 4K, vibrant lighting",
-            "n_prompt": "blurry, cartoon, anime, extra limbs, bad proportions, distorted face",
-            "num_samples": 1,
-            "strength": 0.3,
-            "guess_mode": False
-        }
-
-        response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
-
-        if response.status_code == 200:
-            result = response.json()
-            output = result.get("output")
-            return output[0] if isinstance(output, list) else output
-
-        elif response.status_code == 429:
-            # Rate-limited: set cooldown
-            last_segmind_rate_limit_time = time.time()
-            segmind_failures += 1
-            logging.warning("🚫 Rate limited by Segmind (429). Cooling down for 1 hour.")
-            return None
-
-        else:
-            segmind_failures += 1
-            logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
-            return None
+        # Fallback to Getimg
+        logging.info("🔁 Falling back to Getimg...")
+        result = call_getimg(enhanced_prompt, uploaded_image_url)
+        if result:
+            logging.info("🎯 Image generated via Getimg.")
+        return result
 
     except Exception as e:
-        segmind_failures += 1
-        logging.exception("❌ Exception during image generation")
+        logging.exception("❌ Unexpected error in generate_goal_image")
         return None
+
 
 # ----------------------------
 # Webhook route

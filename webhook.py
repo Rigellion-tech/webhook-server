@@ -104,6 +104,7 @@ def send_email(to_email, subject, body_html):
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     global segmind_calls, segmind_failures
     try:
+        # Upload original image to Cloudinary
         upload_result = cloudinary_upload(
             image_url,
             folder="webhook_images",
@@ -112,6 +113,7 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         uploaded_image_url = upload_result.get("secure_url")
         logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
 
+        # Generate body prompt based on weight difference
         weight_diff = float(desired_weight or 0) - float(current_weight or 0)
         if abs(weight_diff) < 2:
             body_prompt = "similar body type"
@@ -120,32 +122,39 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         else:
             body_prompt = "stronger, athletic build"
 
+        # Gender-specific style prompt
         gender_prompt = ""
         if gender:
-            if gender.lower() in ["male", "man"]:
+            gender = gender.lower()
+            if gender in ["male", "man"]:
                 gender_prompt = "masculine features, realistic male fitness aesthetic"
-            elif gender.lower() in ["female", "woman"]:
+            elif gender in ["female", "woman"]:
                 gender_prompt = "feminine features, realistic female fitness aesthetic"
             else:
                 gender_prompt = "realistic human body appearance"
 
+        # Full AI prompt composition
         enhanced_prompt = f"{prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
 
+        # Segmind API request
         segmind_calls += 1
         headers = {
             "Authorization": f"Bearer {SEGMIND_API_KEY}",
             "Content-Type": "application/json"
         }
+
         payload = {
             "prompt": enhanced_prompt,
-            "image_url": uploaded_image_url,
+            "face_image": uploaded_image_url,  # ✅ Correct key
             "a_prompt": "best quality, extremely detailed",
             "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
             "num_samples": 1,
             "strength": 0.3,
             "guess_mode": False
         }
+
         response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
+
         if response.status_code == 200:
             result = response.json()
             image_out = result.get("output")
@@ -155,12 +164,15 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
         else:
             segmind_failures += 1
             logging.error(f"❌ Segmind API error ({response.status_code}): {response.text}")
+            logging.error(f"Headers sent: {headers}")
+            logging.error(f"Payload sent: {payload}")
             return None
 
     except Exception as e:
         segmind_failures += 1
         logging.exception("❌ Unexpected error during image generation")
         return None
+
 
 # ----------------------------
 # Webhook route

@@ -66,17 +66,18 @@ def pounds_to_kg(lbs):
     except:
         return None
 
-def get_field_value(fields, label_keyword):
-    for field in fields:
-        label = field.get('label', '').lower()
-        value = field.get('value')
-        if label_keyword.lower() in label:
-            if isinstance(value, list):
-                if value and isinstance(value[0], dict):
-                    return value[0].get('url')
-                elif value and isinstance(value[0], str):
-                    return value[0]  # Fix: return the first string from list
-            return value
+def get_field_value(fields, *label_keywords):
+    for keyword in label_keywords:
+        for field in fields:
+            label = field.get('label', '').lower()
+            value = field.get('value')
+            if keyword.lower() in label:
+                if isinstance(value, list):
+                    if value and isinstance(value[0], dict):
+                        return value[0].get('url')
+                    elif value and isinstance(value[0], str):
+                        return value[0]
+                return value
     return None
 
 # ----------------------------
@@ -250,13 +251,13 @@ def handle_webhook():
 
     fields = data['data']['fields']
 
-    first_name = get_field_value(fields, 'first name')
+    first_name = get_field_value(fields, 'first name', 'name')
     email = get_field_value(fields, 'email')
-    gender = get_field_value(fields, 'gender')
-    date_of_birth = get_field_value(fields, 'date of birth')
-    photo_url = get_field_value(fields, 'photo')
-    current_weight_lbs = get_field_value(fields, "current body weight")
-    desired_weight_lbs = get_field_value(fields, "desired weight")
+    gender = get_field_value(fields, 'gender', 'sex')
+    date_of_birth = get_field_value(fields, 'date of birth', 'dob')
+    photo_url = get_field_value(fields, 'photo', 'image')
+    current_weight_lbs = get_field_value(fields, "current weight", "current body weight", "weight now")
+    desired_weight_lbs = get_field_value(fields, "desired weight", "target weight", "goal weight")
 
     age = calculate_age(date_of_birth)
     current_weight_kg = pounds_to_kg(current_weight_lbs)

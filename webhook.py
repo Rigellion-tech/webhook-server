@@ -327,6 +327,9 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 # ----------------------------
 # Webhook route
 # ----------------------------
+# ----------------------------
+# Webhook route
+# ----------------------------
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
     try:
@@ -357,32 +360,40 @@ def handle_webhook():
     ai_prompt = f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, athletic, healthy body, fit appearance, soft lighting, full body studio portrait"
     image_url = generate_goal_image(ai_prompt, photo_url, gender=gender, current_weight=current_weight_lbs, desired_weight=desired_weight_lbs)
 
+    workout_plan_html = generate_workout_plan(age, gender, current_weight_kg, desired_weight_kg)
+    pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
+
     logging.info(f"Generated Image URL: {image_url}")
     logging.info(f"📊 Segmind calls: {segmind_calls}, Failures: {segmind_failures}")
 
     if email:
         email_body = f"""
-Hi {first_name},
+Hi {first_name},<br><br>
 
-Thanks for submitting your fitness form!
+Thanks for submitting your fitness form! Here's a quick summary:<br>
+<ul>
+  <li><b>Age:</b> {age}</li>
+  <li><b>Gender:</b> {gender}</li>
+  <li><b>Current Weight:</b> {current_weight_lbs} lbs ({current_weight_kg} kg)</li>
+  <li><b>Desired Weight:</b> {desired_weight_lbs} lbs ({desired_weight_kg} kg)</li>
+</ul>
 
-Here's a quick summary:
-- Age: {age}
-- Gender: {gender}
-- Current Weight: {current_weight_lbs} lbs ({current_weight_kg} kg)
-- Desired Weight: {desired_weight_lbs} lbs ({desired_weight_kg} kg)
+<h3>💡 AI-Generated Fitness Goal Preview:</h3>
+<img src="{image_url}" alt="AI fitness goal" style="max-width: 100%; height: auto;" /><br><br>
 
-💡 Here's a preview of your future fitness goal:
-<img src=\"{image_url}\" alt=\"AI generated fitness goal\" style=\"max-width: 100%; height: auto;\" />
+<h3>🏋️ Personalized Workout Plan:</h3>
+{workout_plan_html}<br><br>
 
-Stay tuned for your workout plan!
+📄 <b>Download Your Full Plan as PDF:</b> <a href="{pdf_url}" target="_blank">Click Here</a><br><br>
 
-Cheers,  
+Stay strong,<br>
 The DayDream Forge Team
 """
         send_email(to_email=email, subject="Your AI Fitness Image & Summary", body_html=email_body)
 
     return jsonify({'status': 'received'}), 200
 
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+

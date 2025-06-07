@@ -13,6 +13,14 @@ import time
 import base64
 from io import BytesIO
 from PIL import Image
+from fitness_utils import (
+    calculate_age,
+    pounds_to_kg,
+    get_field_value,
+    generate_workout_plan,
+    create_pdf_with_workout
+)
+
 
 # Configure environment-based secrets
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")

@@ -361,12 +361,17 @@ def handle_webhook():
     image_url = generate_goal_image(ai_prompt, photo_url, gender=gender, current_weight=current_weight_lbs, desired_weight=desired_weight_lbs)
 
     workout_plan_html = generate_workout_plan(age, gender, current_weight_kg, desired_weight_kg)
-    pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
+    pdf_url = None
+    if image_url:
+        pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
+    else:
+        logging.warning("Skipping PDF creation because image generation failed.")
 
     logging.info(f"Generated Image URL: {image_url}")
     logging.info(f"📊 Segmind calls: {segmind_calls}, Failures: {segmind_failures}")
 
     if email:
+        pdf_section = f'<b>Download Your Full Plan as PDF:</b> <a href="{pdf_url}" target="_blank">Click Here</a><br><br>' if pdf_url else "<i>⚠️ PDF could not be generated due to image issue.</i><br><br>"
         email_body = f"""
 Hi {first_name},<br><br>
 
@@ -384,7 +389,7 @@ Thanks for submitting your fitness form! Here's a quick summary:<br>
 <h3>🏋️ Personalized Workout Plan:</h3>
 {workout_plan_html}<br><br>
 
-📄 <b>Download Your Full Plan as PDF:</b> <a href="{pdf_url}" target="_blank">Click Here</a><br><br>
+{pdf_section}
 
 Stay strong,<br>
 The DayDream Forge Team
@@ -394,6 +399,10 @@ The DayDream Forge Team
     return jsonify({'status': 'received'}), 200
 
 
+# ----------------------------
+# Program entry point
+# ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
+
 

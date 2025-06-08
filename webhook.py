@@ -21,7 +21,6 @@ from fitness_utils import (
     create_pdf_with_workout
 )
 
-
 # Configure environment-based secrets
 EMAIL_APP_PASSWORD = os.getenv("EMAIL_APP_PASSWORD")
 CLOUDINARY_CLOUD_NAME = os.getenv("CLOUDINARY_CLOUD_NAME")
@@ -30,13 +29,23 @@ CLOUDINARY_API_SECRET = os.getenv("CLOUDINARY_API_SECRET")
 SEGMIND_API_KEY = os.getenv("SEGMIND_API_KEY")
 GETIMG_API_KEY = os.getenv("GETIMG_API_KEY")
 
+# API Key validation logs
+if not SEGMIND_API_KEY:
+    logging.error("❌ SEGMIND_API_KEY is missing from environment.")
+else:
+    logging.info("🔑 SEGMIND_API_KEY is set.")
+
+if not GETIMG_API_KEY:
+    logging.error("❌ GETIMG_API_KEY is missing from environment.")
+else:
+    logging.info("🔑 GETIMG_API_KEY is set.")
+
 # Keep track of when we got rate limited
 last_segmind_rate_limit_time = None
 SEGMIND_COOLDOWN_SECONDS = 3600  # 1 hour cooldown
 
 last_getimg_rate_limit_time = None
 GETIMG_COOLDOWN_SECONDS = 1800  # 30 minutes
-
 
 # Cloudinary configuration
 cloudinary.config(
@@ -62,38 +71,6 @@ app = Flask(__name__)
 @app.before_request
 def log_request():
     logging.info(f"🔍 Incoming request: {request.method} {request.path}")
-
-# ----------------------------
-# Helper functions
-# ----------------------------
-def calculate_age(birthdate_str):
-    try:
-        dob = datetime.strptime(birthdate_str, "%Y-%m-%d")
-        today = datetime.today()
-        return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-    except Exception as e:
-        logging.warning(f"Failed to parse birthdate: {e}")
-        return None
-
-def pounds_to_kg(lbs):
-    try:
-        return round(float(lbs) * 0.453592, 2)
-    except:
-        return None
-
-def get_field_value(fields, *label_keywords):
-    for keyword in label_keywords:
-        for field in fields:
-            label = field.get('label', '').lower()
-            value = field.get('value')
-            if keyword.lower() in label:
-                if isinstance(value, list):
-                    if value and isinstance(value[0], dict):
-                        return value[0].get('url')
-                    elif value and isinstance(value[0], str):
-                        return value[0]
-                return value
-    return None
 
 # ----------------------------
 # Email sending function
@@ -150,14 +127,10 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
             elif g in ["female", "woman"]:
                 gender_prompt = "feminine features, realistic female fitness aesthetic"
 
-        logging.info(f"🧠 Weight diff: {weight_diff} ➝ Body prompt: '{body_prompt}'")
-        logging.info(f"🧬 Gender input: '{gender}' ➝ Gender prompt: '{gender_prompt}'")
-
         final_prompt = (
             f"{prompt}, {body_prompt}, {gender_prompt}, "
             "photorealistic, preserve face, close resemblance to original photo"
         )
-
         logging.info(f"📝 Final prompt: {final_prompt}")
         return final_prompt
 
@@ -212,31 +185,30 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     def call_getimg(enhanced_prompt, uploaded_image_url):
         global getimg_calls, getimg_failures, last_getimg_rate_limit_time
         getimg_calls += 1
-    
+
         if last_getimg_rate_limit_time:
             seconds_since = time.time() - last_getimg_rate_limit_time
             if seconds_since < GETIMG_COOLDOWN_SECONDS:
                 remaining = GETIMG_COOLDOWN_SECONDS - int(seconds_since)
                 logging.warning(f"⏳ Getimg cooldown active. {remaining} seconds remaining.")
                 return None
-    
+
         try:
             img_response = requests.get(uploaded_image_url)
             img_response.raise_for_status()
             base64_img = base64.b64encode(img_response.content).decode('utf-8')
-    
+
             headers = {
                 "Authorization": f"Bearer {os.environ.get('GETIMG_API_KEY')}",
                 "Content-Type": "application/json"
             }
-    
+
             fallback_models = [
-                "realistic-vision-v5",
-                "dreamshaper-v8",
-                "sdxl-lightning",
-                "rev-animated-v1"
+                "revAnimated_v122",
+                "dreamshaper_v8",
+                "realisticVision_v40"
             ]
-    
+
             for model_name in fallback_models:
                 payload = {
                     "prompt": enhanced_prompt,
@@ -249,40 +221,38 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
                     "guidance": 7,
                     "num_images": 1
                 }
-    
+
                 logging.info(f"🧪 Trying Getimg model: {model_name}")
-    
+
                 response = requests.post(
                     "https://api.getimg.ai/v1/stable-diffusion/image-to-image",
                     headers=headers,
                     json=payload
                 )
-    
+
                 if response.status_code == 200:
                     result = response.json()
                     logging.info(f"✅ Image generated via Getimg model: {model_name}")
                     return result["data"][0]["url"]
-    
+
                 elif response.status_code == 429:
                     last_getimg_rate_limit_time = time.time()
                     getimg_failures += 1
                     logging.warning(f"🚫 Getimg rate-limited (429). Cooling down.")
                     return None
-    
+
                 else:
                     logging.warning(f"⚠️ Getimg model '{model_name}' failed: {response.status_code} ➝ {response.text}")
-    
+
             getimg_failures += 1
             logging.error("❌ All Getimg model attempts failed.")
-    
+
         except Exception:
             getimg_failures += 1
             logging.exception("❌ Getimg exception occurred")
-    
+
         return None
 
-
-    # 🧠 Start image download & upload flow
     try:
         logging.info(f"🌐 Downloading image from: {image_url}")
         img_response = requests.get(image_url, stream=True, timeout=10)
@@ -324,9 +294,7 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     except Exception as e:
         logging.error(f"❌ Cloudinary upload failed ➝ {e}")
         return None
-# ----------------------------
-# Webhook route
-# ----------------------------
+
 # ----------------------------
 # Webhook route
 # ----------------------------
@@ -398,11 +366,8 @@ The DayDream Forge Team
 
     return jsonify({'status': 'received'}), 200
 
-
 # ----------------------------
 # Program entry point
 # ----------------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)
-
-

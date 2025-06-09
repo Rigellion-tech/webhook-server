@@ -160,5 +160,50 @@ def call_getimg(enhanced_prompt, uploaded_image_url):
         logging.exception("❌ Getimg exception occurred")
 
     return None
+def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
+    global segmind_calls, segmind_failures, getimg_calls, getimg_failures
+
+    try:
+        logging.info(f"🌐 Downloading image from: {image_url}")
+        img_response = requests.get(image_url, stream=True, timeout=10)
+        img_response.raise_for_status()
+
+        image_bytes = BytesIO(img_response.content)
+
+        try:
+            Image.open(image_bytes).verify()
+            image_bytes.seek(0)
+        except Exception:
+            logging.error("❌ Downloaded file is not a valid image.")
+            return None
+
+        upload_result = cloudinary_upload(
+            file=image_bytes,
+            folder="webhook_images",
+            transformation=[{"width": 512, "height": 512, "crop": "fit"}]
+        )
+        uploaded_image_url = upload_result.get("secure_url")
+        logging.info(f"✅ Image uploaded to Cloudinary: {uploaded_image_url}")
+
+        enhanced_prompt = build_prompt(prompt, gender, current_weight, desired_weight)
+
+        result = call_segmind(enhanced_prompt, uploaded_image_url)
+        if result:
+            logging.info("🎯 Image generated via Segmind.")
+            return result
+
+        logging.info("🔁 Falling back to Getimg...")
+        result = call_getimg(enhanced_prompt, uploaded_image_url)
+        if result:
+            logging.info("🎯 Image generated via Getimg.")
+        return result
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"❌ Failed to download image from URL: {image_url} ➝ {e}")
+        return None
+    except Exception as e:
+        logging.error(f"❌ Cloudinary upload failed ➝ {e}")
+        return None
+
 
 

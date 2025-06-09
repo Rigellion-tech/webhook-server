@@ -21,21 +21,34 @@ def pounds_to_kg(lbs):
     except:
         return None
 
+import logging
+
 def get_field_value(fields, *label_keywords):
     for keyword in label_keywords:
         for field in fields:
             label = field.get('label', '').lower()
             value = field.get('value')
+
             if keyword.lower() in label:
+                logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {value}")
+
                 if isinstance(value, list):
                     if value and isinstance(value[0], dict):
-                        return value[0].get('url') or value[0].get('text') or value[0].get('label')
+                        return value[0].get('url') or value[0].get('text') or value[0].get('label') or str(value[0])
                     elif value and isinstance(value[0], str):
                         return value[0]
+
                 elif isinstance(value, dict):
-                    return value.get('text') or value.get('label') or value.get('value')
-                return value
-    return None
+                    return value.get('text') or value.get('label') or value.get('value') or str(value)
+
+                elif isinstance(value, str):
+                    return value
+
+                # Fallback for unknown format
+                return str(value)
+
+        return None
+
 
 def generate_workout_plan(age, gender, current_weight_kg, desired_weight_kg):
     try:

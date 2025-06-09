@@ -8,10 +8,9 @@ from io import BytesIO
 from PIL import Image
 from cloudinary.uploader import upload as cloudinary_upload
 
-SEGMIND_COOLDOWN_SECONDS = 3600  # 1 hour
-GETIMG_COOLDOWN_SECONDS = 1800   # 30 minutes
+SEGMIND_COOLDOWN_SECONDS = 3600
+GETIMG_COOLDOWN_SECONDS = 1800
 
-# Track state
 segmind_calls = segmind_failures = getimg_calls = getimg_failures = 0
 last_segmind_rate_limit_time = last_getimg_rate_limit_time = None
 
@@ -38,17 +37,17 @@ def build_prompt(base_prompt, gender=None, current_weight=None, desired_weight=N
             gender_prompt = "feminine features, realistic female fitness aesthetic"
 
     final_prompt = (
-        f"{base_prompt}, {body_prompt}, {gender_prompt}, "
-        "photorealistic, preserve face, close resemblance to original photo"
+        f"{base_prompt}, {body_prompt}, {gender_prompt}, photorealistic, preserve face, close resemblance to original photo"
     )
     logging.info(f"📝 Final prompt: {final_prompt}")
     return final_prompt
-def call_segmind(enhanced_prompt, uploaded_image_url):
+
+def call_segmind(prompt, image_url):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
     segmind_calls += 1
 
     try:
-        api_key = os.environ.get('SEGMIND_API_KEY')
+        api_key = os.getenv('SEGMIND_API_KEY')
         if not api_key:
             logging.error("🔐 Segmind API key missing.")
             return None
@@ -59,8 +58,8 @@ def call_segmind(enhanced_prompt, uploaded_image_url):
         }
 
         payload = {
-            "prompt": enhanced_prompt,
-            "face_image": uploaded_image_url,
+            "prompt": prompt,
+            "face_image": image_url,
             "a_prompt": "best quality, extremely detailed",
             "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
             "num_samples": 1,
@@ -73,7 +72,6 @@ def call_segmind(enhanced_prompt, uploaded_image_url):
         if response.status_code == 200:
             result = response.json()
             return result.get("output")[0] if isinstance(result.get("output"), list) else result.get("output")
-
         elif response.status_code == 429:
             last_segmind_rate_limit_time = time.time()
             segmind_failures += 1
@@ -90,7 +88,8 @@ def call_segmind(enhanced_prompt, uploaded_image_url):
         logging.exception("❌ Segmind exception")
 
     return None
-def call_getimg(enhanced_prompt, uploaded_image_url):
+
+def call_getimg(prompt, image_url):
     global getimg_calls, getimg_failures, last_getimg_rate_limit_time
     getimg_calls += 1
 
@@ -102,24 +101,24 @@ def call_getimg(enhanced_prompt, uploaded_image_url):
             return None
 
     try:
-        img_response = requests.get(uploaded_image_url)
+        img_response = requests.get(image_url)
         img_response.raise_for_status()
         base64_img = base64.b64encode(img_response.content).decode('utf-8')
 
         headers = {
-            "Authorization": f"Bearer {os.environ.get('GETIMG_API_KEY')}",
+            "Authorization": f"Bearer {os.getenv('GETIMG_API_KEY')}",
             "Content-Type": "application/json"
         }
 
         fallback_models = [
-            "revAnimated_v122",
-            "dreamshaper_v8",
-            "realisticVision_v40"
+            "realistic-vision-v5",
+            "juggernaut-xl-v8",
+            "dreamshaper-v7"
         ]
 
         for model_name in fallback_models:
             payload = {
-                "prompt": enhanced_prompt,
+                "prompt": prompt,
                 "image": base64_img,
                 "model": model_name,
                 "controlnet_model": "control_v11p_sd15_openpose",
@@ -148,7 +147,6 @@ def call_getimg(enhanced_prompt, uploaded_image_url):
                 getimg_failures += 1
                 logging.warning(f"🚫 Getimg rate-limited (429). Cooling down.")
                 return None
-
             else:
                 logging.warning(f"⚠️ Getimg model '{model_name}' failed: {response.status_code} ➝ {response.text}")
 
@@ -160,16 +158,14 @@ def call_getimg(enhanced_prompt, uploaded_image_url):
         logging.exception("❌ Getimg exception occurred")
 
     return None
-def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
-    global segmind_calls, segmind_failures, getimg_calls, getimg_failures
 
+def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     try:
         logging.info(f"🌐 Downloading image from: {image_url}")
         img_response = requests.get(image_url, stream=True, timeout=10)
         img_response.raise_for_status()
 
         image_bytes = BytesIO(img_response.content)
-
         try:
             Image.open(image_bytes).verify()
             image_bytes.seek(0)
@@ -187,16 +183,15 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 
         enhanced_prompt = build_prompt(prompt, gender, current_weight, desired_weight)
 
-        result = call_segmind(enhanced_prompt, uploaded_image_url)
-        if result:
-            logging.info("🎯 Image generated via Segmind.")
-            return result
+        # Step 1: Generate face-enhanced image using Segmind
+        face_enhanced_url = call_segmind(enhanced_prompt, uploaded_image_url)
+        if not face_enhanced_url:
+            logging.warning("⚠️ Segmind failed. Using original uploaded image for body generation.")
+            face_enhanced_url = uploaded_image_url
 
-        logging.info("🔁 Falling back to Getimg...")
-        result = call_getimg(enhanced_prompt, uploaded_image_url)
-        if result:
-            logging.info("🎯 Image generated via Getimg.")
-        return result
+        # Step 2: Generate full-body transformation with Getimg
+        final_result_url = call_getimg(enhanced_prompt, face_enhanced_url)
+        return final_result_url
 
     except requests.exceptions.RequestException as e:
         logging.error(f"❌ Failed to download image from URL: {image_url} ➝ {e}")
@@ -204,6 +199,3 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
     except Exception as e:
         logging.error(f"❌ Cloudinary upload failed ➝ {e}")
         return None
-
-
-

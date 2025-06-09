@@ -43,3 +43,51 @@ def build_prompt(base_prompt, gender=None, current_weight=None, desired_weight=N
     )
     logging.info(f"📝 Final prompt: {final_prompt}")
     return final_prompt
+def call_segmind(enhanced_prompt, uploaded_image_url):
+    global segmind_calls, segmind_failures, last_segmind_rate_limit_time
+    segmind_calls += 1
+
+    try:
+        api_key = os.environ.get('SEGMIND_API_KEY')
+        if not api_key:
+            logging.error("🔐 Segmind API key missing.")
+            return None
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "prompt": enhanced_prompt,
+            "face_image": uploaded_image_url,
+            "a_prompt": "best quality, extremely detailed",
+            "n_prompt": "blurry, cartoon, unrealistic, distorted, bad anatomy",
+            "num_samples": 1,
+            "strength": 0.3,
+            "guess_mode": False
+        }
+
+        response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
+
+        if response.status_code == 200:
+            result = response.json()
+            return result.get("output")[0] if isinstance(result.get("output"), list) else result.get("output")
+
+        elif response.status_code == 429:
+            last_segmind_rate_limit_time = time.time()
+            segmind_failures += 1
+            logging.warning("🚫 Segmind rate-limited (429). Cooling down.")
+        elif response.status_code == 401:
+            segmind_failures += 1
+            logging.error("🔐 Segmind auth failed (401). Check your API key.")
+        else:
+            segmind_failures += 1
+            logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
+
+    except Exception:
+        segmind_failures += 1
+        logging.exception("❌ Segmind exception")
+
+    return None
+

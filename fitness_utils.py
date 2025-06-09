@@ -29,9 +29,11 @@ def get_field_value(fields, *label_keywords):
             if keyword.lower() in label:
                 if isinstance(value, list):
                     if value and isinstance(value[0], dict):
-                        return value[0].get('url')
+                        return value[0].get('url') or value[0].get('text') or value[0].get('label')
                     elif value and isinstance(value[0], str):
                         return value[0]
+                elif isinstance(value, dict):
+                    return value.get('text') or value.get('label') or value.get('value')
                 return value
     return None
 

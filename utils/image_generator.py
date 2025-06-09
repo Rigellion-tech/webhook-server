@@ -90,4 +90,75 @@ def call_segmind(enhanced_prompt, uploaded_image_url):
         logging.exception("❌ Segmind exception")
 
     return None
+def call_getimg(enhanced_prompt, uploaded_image_url):
+    global getimg_calls, getimg_failures, last_getimg_rate_limit_time
+    getimg_calls += 1
+
+    if last_getimg_rate_limit_time:
+        seconds_since = time.time() - last_getimg_rate_limit_time
+        if seconds_since < GETIMG_COOLDOWN_SECONDS:
+            remaining = GETIMG_COOLDOWN_SECONDS - int(seconds_since)
+            logging.warning(f"⏳ Getimg cooldown active. {remaining} seconds remaining.")
+            return None
+
+    try:
+        img_response = requests.get(uploaded_image_url)
+        img_response.raise_for_status()
+        base64_img = base64.b64encode(img_response.content).decode('utf-8')
+
+        headers = {
+            "Authorization": f"Bearer {os.environ.get('GETIMG_API_KEY')}",
+            "Content-Type": "application/json"
+        }
+
+        fallback_models = [
+            "revAnimated_v122",
+            "dreamshaper_v8",
+            "realisticVision_v40"
+        ]
+
+        for model_name in fallback_models:
+            payload = {
+                "prompt": enhanced_prompt,
+                "image": base64_img,
+                "model": model_name,
+                "controlnet_model": "control_v11p_sd15_openpose",
+                "controlnet_type": "pose",
+                "strength": 0.4,
+                "negative_prompt": "cartoon, blurry, ugly, distorted face, low quality",
+                "guidance": 7,
+                "num_images": 1
+            }
+
+            logging.info(f"🧪 Trying Getimg model: {model_name}")
+
+            response = requests.post(
+                "https://api.getimg.ai/v1/stable-diffusion/image-to-image",
+                headers=headers,
+                json=payload
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                logging.info(f"✅ Image generated via Getimg model: {model_name}")
+                return result["data"][0]["url"]
+
+            elif response.status_code == 429:
+                last_getimg_rate_limit_time = time.time()
+                getimg_failures += 1
+                logging.warning(f"🚫 Getimg rate-limited (429). Cooling down.")
+                return None
+
+            else:
+                logging.warning(f"⚠️ Getimg model '{model_name}' failed: {response.status_code} ➝ {response.text}")
+
+        getimg_failures += 1
+        logging.error("❌ All Getimg model attempts failed.")
+
+    except Exception:
+        getimg_failures += 1
+        logging.exception("❌ Getimg exception occurred")
+
+    return None
+
 

@@ -34,7 +34,7 @@ def pounds_to_kg(lbs):
 def get_field_value(fields, *label_keywords):
     """
     Extracts a field value by matching keywords against field labels.
-    Handles file uploads, simple strings, dicts, lists, and dropdown options.
+    Supports lists (file uploads or multi-select), dicts, and dropdowns via options.
     """
     for keyword in label_keywords:
         for field in fields:
@@ -45,26 +45,29 @@ def get_field_value(fields, *label_keywords):
             raw = field.get('value')
             logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {raw}")
 
-            # If value is a list (e.g. file upload)
+            # If value is a list
             if isinstance(raw, list):
                 first = raw[0] if raw else None
+                # list of dict (file or complex)
                 if isinstance(first, dict):
                     return first.get('url') or first.get('text') or first.get('label') or str(first)
+                # list of strings (e.g. dropdown id)
                 if isinstance(first, str):
+                    opts = field.get('options') or []
+                    for opt in opts:
+                        if opt.get('id') == first:
+                            return opt.get('text') or opt.get('label') or first
                     return first
 
-            # If value is a dict (e.g. dropdown with id/text)
+            # If value is a dict
             if isinstance(raw, dict):
-                # Dropdowns often include both 'id' and 'text' or 'label'
                 text = raw.get('text') or raw.get('label') or raw.get('value')
                 if text:
                     return text
-                # Fallback to stringified dict
                 return str(raw)
 
             # If value is a simple string
             if isinstance(raw, str):
-                # Attempt to resolve dropdown option text if 'options' provided
                 opts = field.get('options') or []
                 for opt in opts:
                     if opt.get('id') == raw:
@@ -73,7 +76,6 @@ def get_field_value(fields, *label_keywords):
 
             # Fallback for other types
             return str(raw)
-
     return None
 
 # ----------------------------

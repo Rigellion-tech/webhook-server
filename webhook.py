@@ -77,21 +77,31 @@ def handle_webhook():
         desired_weight_kg=desired_weight_kg
     )
 
-    # PDF creation
-    pdf_url = None
+    # Full-plan PDF (with image)
+    full_pdf_url = None
     if image_url:
-        pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
+        full_pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
     else:
         logging.warning("Skipping PDF creation because image generation failed.")
 
+    # Plan-only PDF
+    plan_only_pdf_url = create_pdf_plan_only(workout_plan_html)
+
     # Send email response if email provided
     if email:
-        pdf_section = (
-            f'<b>Download Your Full Plan as PDF:</b> '
-            f'<a href="{pdf_url}" target="_blank">Click Here</a><br><br>'
-            if pdf_url else
-            "<i>⚠️ PDF could not be generated due to image issue.</i><br><br>"
+        full_pdf_section = (
+            f'<b>Download Your Full Plan as PDF (with image):</b> '
+            f'<a href="{full_pdf_url}" target="_blank">Download Full Plan</a><br><br>'
+            if full_pdf_url else
+            "<i>⚠️ Full-plan PDF could not be generated.</i><br><br>"
         )
+        plan_only_section = (
+            f'<b>Download Workout Plan PDF (no image):</b> '
+            f'<a href="{plan_only_pdf_url}" target="_blank">Download Plan Only</a><br><br>'
+            if plan_only_pdf_url else
+            "<i>⚠️ Plan-only PDF could not be generated.</i><br><br>"
+        )
+
         email_body = f"""
 Hi {first_name},<br><br>
 
@@ -109,7 +119,8 @@ Thanks for submitting your fitness form! Here's a quick summary:<br>
 <h3>🏋️ Personalized Workout Plan:</h3>
 {workout_plan_html}<br><br>
 
-{pdf_section}
+{full_pdf_section}
+{plan_only_section}
 
 Stay strong,<br>
 The DayDream Forge Team

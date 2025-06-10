@@ -1,5 +1,6 @@
 import logging
 import time
+import re
 from datetime import datetime
 from io import BytesIO
 import requests
@@ -48,10 +49,8 @@ def get_field_value(fields, *label_keywords):
             # If value is a list
             if isinstance(raw, list):
                 first = raw[0] if raw else None
-                # list of dict (file or complex)
                 if isinstance(first, dict):
                     return first.get('url') or first.get('text') or first.get('label') or str(first)
-                # list of strings (e.g. dropdown id)
                 if isinstance(first, str):
                     opts = field.get('options') or []
                     for opt in opts:
@@ -94,7 +93,10 @@ def generate_workout_plan(
     tracking_calories=None,
     notes=None
 ):
-    # If using GPT:
+    """
+    Generate a personalized, HTML-formatted workout and meal plan using GPT.
+    Strips markdown fences if present.
+    """
     system_msg = {
         "role": "system",
         "content": (
@@ -135,7 +137,11 @@ def generate_workout_plan(
         messages=[system_msg, {"role": "user", "content": user_prompt}],
         temperature=0.7
     )
-    return response.choices[0].message.content
+    plan = response.choices[0].message.content
+    # Strip any markdown fences
+    plan = re.sub(r"^```(?:html)?\n", "", plan)
+    plan = re.sub(r"\n```$", "", plan)
+    return plan
 
 # ----------------------------
 # PDF Creation

@@ -6,8 +6,16 @@ from io import BytesIO
 import requests
 from fpdf import FPDF
 from cloudinary.uploader import upload as cloudinary_upload
+import cloudinary
 import os
 import openai
+
+# Configure Cloudinary for PDF uploads
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
 
 # Initialize OpenAI (if using GPT-powered plan; otherwise remove)
 openai.api_key = os.getenv("OPENAI_API_KEY")
@@ -46,7 +54,7 @@ def get_field_value(fields, *label_keywords):
             raw = field.get('value')
             logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {raw}")
 
-            # If value is a list
+            # If value is a list (e.g. file uploads or multi-select)
             if isinstance(raw, list):
                 first = raw[0] if raw else None
                 if isinstance(first, dict):
@@ -58,14 +66,14 @@ def get_field_value(fields, *label_keywords):
                             return opt.get('text') or opt.get('label') or first
                     return first
 
-            # If value is a dict
+            # If value is a dict (structured like {'id','text'})
             if isinstance(raw, dict):
                 text = raw.get('text') or raw.get('label') or raw.get('value')
                 if text:
                     return text
                 return str(raw)
 
-            # If value is a simple string
+            # If value is a simple string (e.g. raw input or dropdown id)
             if isinstance(raw, str):
                 opts = field.get('options') or []
                 for opt in opts:
@@ -138,13 +146,12 @@ def generate_workout_plan(
         temperature=0.7
     )
     plan = response.choices[0].message.content
-    # Strip any markdown fences
     plan = re.sub(r"^```(?:html)?\n", "", plan)
     plan = re.sub(r"\n```$", "", plan)
     return plan
 
 # ----------------------------
-# PDF Creation for image + plan
+# PDF Creation: with Image
 # ----------------------------
 def create_pdf_with_workout(image_url, workout_plan_html):
     try:
@@ -178,25 +185,21 @@ def create_pdf_with_workout(image_url, workout_plan_html):
         pdf_bytes = BytesIO()
         pdf.output(pdf_bytes)
         pdf_bytes.seek(0)
-        upload_result = cloudinary_upload(
+        upload = cloudinary_upload(
             file=pdf_bytes,
             folder="webhook_pdfs",
             resource_type="raw",
             public_id=f"fitness_plan_{int(time.time())}"
         )
-        return upload_result.get("secure_url")
+        return upload.get("secure_url")
     except Exception as e:
         logging.error(f"❌ PDF creation/upload failed: {e}")
         return None
 
 # ----------------------------
-# PDF Creation for plan only
+# PDF Creation: Plan Only
 # ----------------------------
 def create_pdf_plan_only(workout_plan_html):
-    """
-    Generate a PDF containing only the workout plan (no image) and upload it.
-    Returns a URL to the uploaded PDF.
-    """
     try:
         pdf = FPDF()
         pdf.add_page()
@@ -212,17 +215,16 @@ def create_pdf_plan_only(workout_plan_html):
                 pdf.set_font("Helvetica", size=12)
             else:
                 pdf.multi_cell(0, 8, re.sub(r"<[^>]+>", "", line))
-
         pdf_bytes = BytesIO()
         pdf.output(pdf_bytes)
         pdf_bytes.seek(0)
-        upload_result = cloudinary_upload(
+        upload = cloudinary_upload(
             file=pdf_bytes,
             folder="workout_plan_pdfs",
             resource_type="raw",
             public_id=f"plan_only_{int(time.time())}"
         )
-        return upload_result.get("secure_url")
+        return upload.get("secure_url")
     except Exception as e:
         logging.error(f"❌ Plan-only PDF creation failed: {e}")
         return None

@@ -1,5 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
+from utils.workout_ai import generate_ai_workout_plan
 import logging
 from fitness_utils import (
     calculate_age,
@@ -59,6 +60,26 @@ def handle_webhook():
         pdf_url = create_pdf_with_workout(image_url, workout_plan_html)
     else:
         logging.warning("Skipping PDF creation because image generation failed.")
+from utils.workout_ai import generate_ai_workout_plan
+
+@app.route('/workout', methods=['POST'])
+def handle_workout():
+    data = request.get_json(force=True)
+    plan_html = generate_ai_workout_plan(
+        age=data['age'],
+        gender=data['gender'],
+        current_weight_kg=data['current_weight_kg'],
+        desired_weight_kg=data['desired_weight_kg'],
+        activity_level=data.get('activity_level'),
+        goal_timeline=data.get('goal_timeline'),
+        preferences=data.get('preferences'),
+        injuries=data.get('injuries'),
+        sleep_quality=data.get('sleep_quality'),
+        tracking_calories=data.get('tracking_calories'),
+        notes=data.get('notes')
+    )
+    return jsonify({'plan_html': plan_html})
+
 
     if email:
         pdf_section = f'<b>Download Your Full Plan as PDF:</b> <a href="{pdf_url}" target="_blank">Click Here</a><br><br>' if pdf_url else "<i>⚠️ PDF could not be generated due to image issue.</i><br><br>"

@@ -1,6 +1,6 @@
 # app.py
 from flask import Flask, request, jsonify
-from utils.workout_ai import generate_ai_workout_plan
+from fitness_utils import generate_workout_plan
 import logging
 from fitness_utils import (
     calculate_age,

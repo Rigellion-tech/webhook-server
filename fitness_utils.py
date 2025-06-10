@@ -131,9 +131,10 @@ def generate_workout_plan(
 # PDF Creation: With Image
 # ----------------------------
 def create_pdf_with_workout(image_url, workout_plan_html):
-    # Sanitize smart quotes
-    html = workout_plan_html.replace("’", "'")
-    html = html.replace("“", '"').replace("”", '"')
+    # Sanitize smart quotes and strip non-Latin1 characters
+    html = workout_plan_html.replace("’", "'").replace("“", '"').replace("”", '"')
+    # Drop characters outside Latin-1
+    html = html.encode('latin-1', 'ignore').decode('latin-1')
     try:
         pdf = FPDF()
         pdf.add_page()
@@ -154,7 +155,9 @@ def create_pdf_with_workout(image_url, workout_plan_html):
         pdf.ln(10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Helvetica", size=12)
-        for line in html.replace("<br>", "\n").split("\n"):
+        for line in html.replace("<br>", "
+").split("
+"):
             if line.strip().startswith("<b>"):
                 pdf.set_font("Helvetica", 'B', 13)
             pdf.multi_cell(0, 8, re.sub(r"<[^>]+>", "", line))
@@ -181,9 +184,9 @@ def create_pdf_with_workout(image_url, workout_plan_html):
 # PDF Creation: Plan Only
 # ----------------------------
 def create_pdf_plan_only(workout_plan_html):
-    # Sanitize smart quotes
-    html = workout_plan_html.replace("’", "'")
-    html = html.replace("“", '"').replace("”", '"')
+    # Sanitize smart quotes and strip non-Latin1 characters
+    html = workout_plan_html.replace("’", "'").replace("“", '"').replace("”", '"')
+    html = html.encode('latin-1', 'ignore').decode('latin-1')
     try:
         pdf = FPDF()
         pdf.add_page()
@@ -191,7 +194,9 @@ def create_pdf_plan_only(workout_plan_html):
         pdf.cell(0, 10, txt="Personalized Workout Plan", ln=True, align='C')
         pdf.ln(5)
         pdf.set_font("Helvetica", size=12)
-        for line in html.replace("<br>", "\n").split("\n"):
+        for line in html.replace("<br>", "
+").split("
+"):
             clean = re.sub(r"<[^>]+>", "", line)
             if not clean.strip():
                 continue

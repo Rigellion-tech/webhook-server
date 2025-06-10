@@ -1,4 +1,5 @@
 import logging
+import tempfile
 import time
 import re
 from datetime import datetime
@@ -201,30 +202,39 @@ def create_pdf_with_workout(image_url, workout_plan_html):
 # ----------------------------
 def create_pdf_plan_only(workout_plan_html):
     try:
+        # 1) Render the PDF in memory
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Helvetica", 'B', 16)
-        pdf.cell(0, 10, txt="Personalized Workout Plan", ln=True, align='C')
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.cell(0, 10, "Personalized Workout Plan", ln=True, align="C")
         pdf.ln(5)
         pdf.set_font("Helvetica", size=12)
-        for line in workout_plan_html.replace("<br>", "\n").split("\n"):
-            if line.startswith("<b>") and line.endswith("</b>"):
-                text = re.sub(r"<\/?b>", "", line)
-                pdf.set_font("Helvetica", 'B', 13)
-                pdf.multi_cell(0, 8, text)
-                pdf.set_font("Helvetica", size=12)
-            else:
-                pdf.multi_cell(0, 8, re.sub(r"<[^>]+>", "", line))
-        pdf_bytes = BytesIO()
-        pdf.output(pdf_bytes)
-        pdf_bytes.seek(0)
-        upload = cloudinary_upload(
-            file=pdf_bytes,
+
+        # strip HTML tags
+        lines = [re.sub(r"<[^>]+>", "", line)
+                 for line in workout_plan_html.replace("<br>", "\n").split("\n")]
+        for line in lines:
+            if line.strip():
+                pdf.multi_cell(0, 8, line)
+
+        # 2) Save to a real temp file
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        tmp_path = tmp.name
+        pdf.output(tmp_path)
+        tmp.close()
+
+        # 3) Upload by path
+        result = cloudinary_upload(
+            file=tmp_path,
             folder="workout_plan_pdfs",
             resource_type="raw",
             public_id=f"plan_only_{int(time.time())}"
         )
-        return upload.get("secure_url")
+
+        # 4) Clean up
+        os.remove(tmp_path)
+        return result.get("secure_url")
+
     except Exception as e:
         logging.error(f"❌ Plan-only PDF creation failed: {e}")
         return None

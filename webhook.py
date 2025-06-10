@@ -6,7 +6,8 @@ from fitness_utils import (
     pounds_to_kg,
     get_field_value,
     generate_workout_plan,
-    create_pdf_with_workout
+    create_pdf_with_workout,
+    create_pdf_plan_only
 )
 from utils.image_generator import generate_goal_image
 from utils.email_utils import send_email
@@ -118,7 +119,7 @@ The DayDream Forge Team
     return jsonify({'status': 'received'}), 200
 
 # ----------------------------
-# Pure Data: Workout Plan Endpoint
+# Pure Data: Workout Plan Endpoint with Downloadable PDF
 # ----------------------------
 @app.route('/workout', methods=['POST'])
 def handle_workout():
@@ -140,7 +141,9 @@ def handle_workout():
         tracking_calories=data.get('tracking_calories'),
         notes=data.get('notes')
     )
-    return jsonify({'plan_html': plan_html}), 200
+    # Generate plan-only PDF
+    plan_pdf_url = create_pdf_plan_only(plan_html)
+    return jsonify({'plan_html': plan_html, 'pdf_url': plan_pdf_url}), 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=False)

@@ -8,7 +8,7 @@ from cloudinary.uploader import upload as cloudinary_upload
 import os
 import openai
 
-# Initialize OpenAI
+# Initialize OpenAI (if using GPT-powered plan; otherwise remove)
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ----------------------------
@@ -27,43 +27,57 @@ def calculate_age(birthdate_str):
 def pounds_to_kg(lbs):
     try:
         return round(float(lbs) * 0.453592, 2)
-    except:
+    except Exception:
         return None
 
 
 def get_field_value(fields, *label_keywords):
+    """
+    Extracts a field value by matching keywords against field labels.
+    Handles file uploads, simple strings, dicts, lists, and dropdown options.
+    """
     for keyword in label_keywords:
         for field in fields:
             label = field.get('label', '').lower()
-            value = field.get('value')
+            if keyword.lower() not in label:
+                continue
 
-            if keyword.lower() in label:
-                logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {value}")
+            raw = field.get('value')
+            logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {raw}")
 
-                if isinstance(value, list):
-                    if value and isinstance(value[0], dict):
-                        return (value[0].get('url') or
-                                value[0].get('text') or
-                                value[0].get('label') or
-                                str(value[0]))
-                    elif value and isinstance(value[0], str):
-                        return value[0]
+            # If value is a list (e.g. file upload)
+            if isinstance(raw, list):
+                first = raw[0] if raw else None
+                if isinstance(first, dict):
+                    return first.get('url') or first.get('text') or first.get('label') or str(first)
+                if isinstance(first, str):
+                    return first
 
-                elif isinstance(value, dict):
-                    return (value.get('text') or
-                            value.get('label') or
-                            value.get('value') or
-                            str(value))
+            # If value is a dict (e.g. dropdown with id/text)
+            if isinstance(raw, dict):
+                # Dropdowns often include both 'id' and 'text' or 'label'
+                text = raw.get('text') or raw.get('label') or raw.get('value')
+                if text:
+                    return text
+                # Fallback to stringified dict
+                return str(raw)
 
-                elif isinstance(value, str):
-                    return value
+            # If value is a simple string
+            if isinstance(raw, str):
+                # Attempt to resolve dropdown option text if 'options' provided
+                opts = field.get('options') or []
+                for opt in opts:
+                    if opt.get('id') == raw:
+                        return opt.get('text') or opt.get('label') or raw
+                return raw
 
-                # Fallback
-                return str(value)
+            # Fallback for other types
+            return str(raw)
+
     return None
 
 # ----------------------------
-# GPT-Powered Workout Plan
+# Static or GPT-Powered Workout Plan
 # ----------------------------
 def generate_workout_plan(
     age,
@@ -78,9 +92,7 @@ def generate_workout_plan(
     tracking_calories=None,
     notes=None
 ):
-    """
-    Generate a personalized, HTML-formatted workout and meal plan using GPT.
-    """
+    # If using GPT:
     system_msg = {
         "role": "system",
         "content": (
@@ -88,7 +100,6 @@ def generate_workout_plan(
             "Always consider health conditions, timeline, and lifestyle details."
         )
     }
-
     user_parts = [
         f"Age: {age}",
         f"Gender: {gender}",
@@ -117,13 +128,11 @@ def generate_workout_plan(
         "Tailor intensity to goal timeline and health data. Include safety tips and recovery guidance.<br>"
         + "<br>".join(user_parts)
     )
-
     response = openai.ChatCompletion.create(
         model="gpt-4o-mini",
-        messages=[system_msg, {"role":"user","content":user_prompt}],
+        messages=[system_msg, {"role": "user", "content": user_prompt}],
         temperature=0.7
     )
-
     return response.choices[0].message.content
 
 # ----------------------------
@@ -133,49 +142,34 @@ def create_pdf_with_workout(image_url, workout_plan_html):
     try:
         pdf = FPDF()
         pdf.add_page()
-
-        # Background
         pdf.set_fill_color(240, 248, 255)
         pdf.rect(0, 0, 210, 297, 'F')
-
-        # Title
         pdf.set_font("Helvetica", 'B', 18)
         pdf.set_text_color(25, 25, 112)
         pdf.cell(200, 12, txt="Your Fitness Goal & Workout Plan", ln=True, align='C')
         pdf.ln(5)
-
-        # Divider
         pdf.set_draw_color(100, 149, 237)
         pdf.set_line_width(0.8)
         pdf.line(10, 25, 200, 25)
         pdf.ln(10)
-
-        # Image
         img_data = requests.get(image_url).content
         with open("temp_image.jpg", "wb") as f:
             f.write(img_data)
         pdf.image("temp_image.jpg", x=30, w=150)
         pdf.ln(10)
-
-        # Workout Plan Text
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Helvetica", size=12)
         for line in workout_plan_html.replace("<br>", "\n").split("\n"):
             if line.strip().startswith("<b>"):
                 pdf.set_font("Helvetica", 'B', 13)
             pdf.multi_cell(0, 8, line)
-
-        # Footer
         pdf.ln(5)
         pdf.set_font("Helvetica", 'I', 10)
         pdf.set_text_color(105, 105, 105)
         pdf.cell(0, 10, txt="Generated by DayDream Forge", ln=True, align='C')
-
-        # Upload PDF
         pdf_bytes = BytesIO()
         pdf.output(pdf_bytes)
         pdf_bytes.seek(0)
-
         upload_result = cloudinary_upload(
             file=pdf_bytes,
             folder="webhook_pdfs",
@@ -183,7 +177,6 @@ def create_pdf_with_workout(image_url, workout_plan_html):
             public_id=f"fitness_plan_{int(time.time())}"
         )
         return upload_result.get("secure_url")
-
     except Exception as e:
         logging.error(f"❌ PDF creation/upload failed: {e}")
         return None

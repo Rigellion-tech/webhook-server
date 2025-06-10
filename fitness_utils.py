@@ -1,24 +1,24 @@
 import logging
-import tempfile
 import time
 import re
 from datetime import datetime
 from io import BytesIO
+import tempfile
+import os
 import requests
 from fpdf import FPDF
 from cloudinary.uploader import upload as cloudinary_upload
 import cloudinary
-import os
 import openai
 
-# Configure Cloudinary for PDF uploads
+# Configure Cloudinary
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# Initialize OpenAI (if using GPT-powered plan; otherwise remove)
+# Initialize OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # ----------------------------
@@ -42,20 +42,13 @@ def pounds_to_kg(lbs):
 
 
 def get_field_value(fields, *label_keywords):
-    """
-    Extracts a field value by matching keywords against field labels.
-    Supports lists (file uploads or multi-select), dicts, and dropdowns via options.
-    """
     for keyword in label_keywords:
         for field in fields:
             label = field.get('label', '').lower()
             if keyword.lower() not in label:
                 continue
-
             raw = field.get('value')
             logging.info(f"🧩 Matching field '{label}' ➝ Raw value: {raw}")
-
-            # If value is a list (e.g. file uploads or multi-select)
             if isinstance(raw, list):
                 first = raw[0] if raw else None
                 if isinstance(first, dict):
@@ -66,28 +59,20 @@ def get_field_value(fields, *label_keywords):
                         if opt.get('id') == first:
                             return opt.get('text') or opt.get('label') or first
                     return first
-
-            # If value is a dict (structured like {'id','text'})
             if isinstance(raw, dict):
                 text = raw.get('text') or raw.get('label') or raw.get('value')
-                if text:
-                    return text
-                return str(raw)
-
-            # If value is a simple string (e.g. raw input or dropdown id)
+                return text or str(raw)
             if isinstance(raw, str):
                 opts = field.get('options') or []
                 for opt in opts:
                     if opt.get('id') == raw:
                         return opt.get('text') or opt.get('label') or raw
                 return raw
-
-            # Fallback for other types
             return str(raw)
     return None
 
 # ----------------------------
-# Static or GPT-Powered Workout Plan
+# Workout Plan (GPT-Powered)
 # ----------------------------
 def generate_workout_plan(
     age,
@@ -102,10 +87,6 @@ def generate_workout_plan(
     tracking_calories=None,
     notes=None
 ):
-    """
-    Generate a personalized, HTML-formatted workout and meal plan using GPT.
-    Strips markdown fences if present.
-    """
     system_msg = {
         "role": "system",
         "content": (
@@ -117,28 +98,23 @@ def generate_workout_plan(
         f"Age: {age}",
         f"Gender: {gender}",
         f"Current weight: {current_weight_kg:.1f} kg",
-        f"Desired weight: {desired_weight_kg:.1f} kg",
+        f"Desired weight: {desired_weight_kg:.1f} kg"
     ]
-    if activity_level:
-        user_parts.append(f"Activity level: {activity_level}")
-    if goal_timeline:
-        user_parts.append(f"Goal timeline: {goal_timeline}")
-    if preferences:
-        user_parts.append(f"Workout preferences: {preferences}")
-    if injuries:
-        user_parts.append(f"Injuries/limitations: {injuries}")
-    if sleep_quality:
-        user_parts.append(f"Sleep quality: {sleep_quality}")
-    if tracking_calories is not None:
-        user_parts.append(f"Tracks calories: {tracking_calories}")
-    if notes:
-        user_parts.append(f"Additional notes: {notes}")
-
+    for label, value in [
+        ("Activity level", activity_level),
+        ("Goal timeline", goal_timeline),
+        ("Workout preferences", preferences),
+        ("Injuries/limitations", injuries),
+        ("Sleep quality", sleep_quality),
+        ("Tracks calories", tracking_calories),
+        ("Additional notes", notes)
+    ]:
+        if value is not None:
+            user_parts.append(f"{label}: {value}")
     user_prompt = (
         "Generate an HTML-formatted, personalized fitness plan with two sections:<br>"
         "<b>Weekly Workout Schedule:</b> (with days and exercises, reps, durations) and "
-        "<b>Sample Meal Plan:</b>. "
-        "Tailor intensity to goal timeline and health data. Include safety tips and recovery guidance.<br>"
+        "<b>Sample Meal Plan:</b>. Include safety tips and recovery guidance.<br>"
         + "<br>".join(user_parts)
     )
     response = openai.ChatCompletion.create(
@@ -152,9 +128,12 @@ def generate_workout_plan(
     return plan
 
 # ----------------------------
-# PDF Creation: with Image
+# PDF Creation: With Image
 # ----------------------------
 def create_pdf_with_workout(image_url, workout_plan_html):
+    # Sanitize smart quotes
+    html = workout_plan_html.replace("’", "'")
+    html = html.replace("“", '"').replace("”", '"')
     try:
         pdf = FPDF()
         pdf.add_page()
@@ -175,23 +154,24 @@ def create_pdf_with_workout(image_url, workout_plan_html):
         pdf.ln(10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Helvetica", size=12)
-        for line in workout_plan_html.replace("<br>", "\n").split("\n"):
+        for line in html.replace("<br>", "\n").split("\n"):
             if line.strip().startswith("<b>"):
                 pdf.set_font("Helvetica", 'B', 13)
-            pdf.multi_cell(0, 8, line)
+            pdf.multi_cell(0, 8, re.sub(r"<[^>]+>", "", line))
         pdf.ln(5)
         pdf.set_font("Helvetica", 'I', 10)
         pdf.set_text_color(105, 105, 105)
         pdf.cell(0, 10, txt="Generated by DayDream Forge", ln=True, align='C')
-        pdf_bytes = BytesIO()
-        pdf.output(pdf_bytes)
-        pdf_bytes.seek(0)
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        pdf.output(tmp.name)
+        tmp.close()
         upload = cloudinary_upload(
-            file=pdf_bytes,
+            file=tmp.name,
             folder="webhook_pdfs",
             resource_type="raw",
             public_id=f"fitness_plan_{int(time.time())}"
         )
+        os.remove(tmp.name)
         return upload.get("secure_url")
     except Exception as e:
         logging.error(f"❌ PDF creation/upload failed: {e}")
@@ -201,40 +181,32 @@ def create_pdf_with_workout(image_url, workout_plan_html):
 # PDF Creation: Plan Only
 # ----------------------------
 def create_pdf_plan_only(workout_plan_html):
+    # Sanitize smart quotes
+    html = workout_plan_html.replace("’", "'")
+    html = html.replace("“", '"').replace("”", '"')
     try:
-        # 1) Render the PDF in memory
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("Helvetica", "B", 16)
-        pdf.cell(0, 10, "Personalized Workout Plan", ln=True, align="C")
+        pdf.set_font("Helvetica", 'B', 16)
+        pdf.cell(0, 10, txt="Personalized Workout Plan", ln=True, align='C')
         pdf.ln(5)
         pdf.set_font("Helvetica", size=12)
-
-        # strip HTML tags
-        lines = [re.sub(r"<[^>]+>", "", line)
-                 for line in workout_plan_html.replace("<br>", "\n").split("\n")]
-        for line in lines:
-            if line.strip():
-                pdf.multi_cell(0, 8, line)
-
-        # 2) Save to a real temp file
+        for line in html.replace("<br>", "\n").split("\n"):
+            clean = re.sub(r"<[^>]+>", "", line)
+            if not clean.strip():
+                continue
+            pdf.multi_cell(0, 8, clean)
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        tmp_path = tmp.name
-        pdf.output(tmp_path)
+        pdf.output(tmp.name)
         tmp.close()
-
-        # 3) Upload by path
-        result = cloudinary_upload(
-            file=tmp_path,
+        upload = cloudinary_upload(
+            file=tmp.name,
             folder="workout_plan_pdfs",
             resource_type="raw",
             public_id=f"plan_only_{int(time.time())}"
         )
-
-        # 4) Clean up
-        os.remove(tmp_path)
-        return result.get("secure_url")
-
+        os.remove(tmp.name)
+        return upload.get("secure_url")
     except Exception as e:
         logging.error(f"❌ Plan-only PDF creation failed: {e}")
         return None

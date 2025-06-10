@@ -10,7 +10,6 @@ from fitness_utils import (
 )
 from utils.image_generator import generate_goal_image
 from utils.email_utils import send_email
-from utils.workout_ai import generate_ai_workout_plan
 
 app = Flask(__name__)
 
@@ -25,7 +24,7 @@ def log_request():
     logging.info(f"🔍 Incoming request: {request.method} {request.path}")
 
 # ----------------------------
-# Webhook: Image + Static Workout Plan
+# Webhook: Image + Workout Plan
 # ----------------------------
 @app.route('/webhook', methods=['POST'])
 def handle_webhook():
@@ -69,12 +68,12 @@ def handle_webhook():
         desired_weight=desired_weight_lbs
     )
 
-    # Static workout plan (fallback if image fails)
+    # Workout plan generation
     workout_plan_html = generate_workout_plan(
-        age,
-        gender,
-        current_weight_kg,
-        desired_weight_kg
+        age=age,
+        gender=gender,
+        current_weight_kg=current_weight_kg,
+        desired_weight_kg=desired_weight_kg
     )
 
     # PDF creation
@@ -119,23 +118,16 @@ The DayDream Forge Team
     return jsonify({'status': 'received'}), 200
 
 # ----------------------------
-# Pure Data: GPT-Powered Workout Plan
+# Pure Data: Workout Plan Endpoint
 # ----------------------------
 @app.route('/workout', methods=['POST'])
 def handle_workout():
     data = request.get_json(force=True)
-    required = [
-        'age', 'gender', 'current_weight_kg', 'desired_weight_kg'
-    ]
+    required = ['age', 'gender', 'current_weight_kg', 'desired_weight_kg']
     if not all(k in data for k in required):
-        return (
-            jsonify({
-                'error': 'Missing one of: ' + ", ".join(required)
-            }),
-            400
-        )
+        return jsonify({'error': 'Missing one of: ' + ", ".join(required)}), 400
 
-    plan_html = generate_ai_workout_plan(
+    plan_html = generate_workout_plan(
         age=data['age'],
         gender=data['gender'],
         current_weight_kg=data['current_weight_kg'],

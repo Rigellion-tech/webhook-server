@@ -42,9 +42,18 @@ def build_prompt(base_prompt, gender=None, current_weight=None, desired_weight=N
     logging.info(f"📝 Final prompt: {final_prompt}")
     return final_prompt
 
+
 def call_segmind(prompt, image_url):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
     segmind_calls += 1
+
+    # --- cooldown guard ---
+    if last_segmind_rate_limit_time:
+        elapsed = time.time() - last_segmind_rate_limit_time
+        if elapsed < SEGMIND_COOLDOWN_SECONDS:
+            rem = SEGMIND_COOLDOWN_SECONDS - int(elapsed)
+            logging.warning(f"⏳ Segmind cooldown active. {rem}s remaining.")
+            return None
 
     try:
         api_key = os.getenv('SEGMIND_API_KEY')
@@ -56,7 +65,6 @@ def call_segmind(prompt, image_url):
             "x-api-key": api_key,
             "Content-Type": "application/json"
         }
-
         payload = {
             "prompt": prompt,
             "face_image": image_url,
@@ -67,29 +75,43 @@ def call_segmind(prompt, image_url):
             "guess_mode": False
         }
 
-        response = requests.post(
-            "https://api.segmind.com/v1/instantid",
-            headers=headers,
-            json=payload
-        )
+        response = requests.post("https://api.segmind.com/v1/instantid",
+                                 headers=headers, json=payload)
+        status = response.status_code
+        text_snip = (response.text or "")[:200]
 
-        if response.status_code == 200:
-            result = response.json()
+        # 200 OK → safe‐guard JSON decode
+        if status == 200:
+            ct = response.headers.get("Content-Type", "")
+            if "application/json" not in ct:
+                segmind_failures += 1
+                logging.error(f"❌ Segmind returned non-JSON ({ct}): {text_snip}")
+                return None
+            try:
+                result = response.json()
+            except ValueError as e:
+                segmind_failures += 1
+                logging.error(f"❌ Segmind JSON decode failed: {e}; text: {text_snip}")
+                return None
+
             output = result.get("output")
             return output[0] if isinstance(output, list) else output
 
-        elif response.status_code == 429:
+        # handle rate‐limit
+        elif status == 429:
             last_segmind_rate_limit_time = time.time()
             segmind_failures += 1
-            logging.warning("🚫 Segmind rate-limited (429). Cooling down.")
+            logging.warning(f"🚫 Segmind rate-limited: {status} → {text_snip}")
 
-        elif response.status_code == 401:
+        # auth error
+        elif status == 401:
             segmind_failures += 1
-            logging.error("🔐 Segmind auth failed (401). Check your API key.")
+            logging.error(f"🔐 Segmind auth failed: {status} → {text_snip}")
 
+        # any other error
         else:
             segmind_failures += 1
-            logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
+            logging.error(f"❌ Segmind API error {status}: {text_snip}")
 
     except Exception:
         segmind_failures += 1
@@ -106,10 +128,11 @@ def call_getimg(prompt, image_url):
         seconds_since = time.time() - last_getimg_rate_limit_time
         if seconds_since < GETIMG_COOLDOWN_SECONDS:
             remaining = GETIMG_COOLDOWN_SECONDS - int(seconds_since)
-            logging.warning(f"⏳ Getimg cooldown active. {remaining} seconds remaining.")
+            logging.warning(f"⏳ Getimg cooldown active. {remaining}s remaining.")
             return None
 
     try:
+        # download + base64-encode
         img_response = requests.get(image_url)
         img_response.raise_for_status()
         base64_img = base64.b64encode(img_response.content).decode('utf-8')
@@ -119,6 +142,7 @@ def call_getimg(prompt, image_url):
             "Content-Type": "application/json"
         }
 
+        # TODO: replace these with the exact model IDs your plan supports
         fallback_models = [
             "realistic-vision-v5",
             "juggernaut-xl-v8",
@@ -137,27 +161,34 @@ def call_getimg(prompt, image_url):
                 "guidance": 7,
                 "num_images": 1
             }
-
             logging.info(f"🧪 Trying Getimg model: {model_name}")
-
             response = requests.post(
                 "https://api.getimg.ai/v1/stable-diffusion/image-to-image",
                 headers=headers,
                 json=payload
             )
+            status = response.status_code
+            text_snip = (response.text or "")[:200]
 
-            if response.status_code == 200:
-                result = response.json()
+            if status == 200:
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    getimg_failures += 1
+                    logging.error(f"❌ Getimg JSON decode failed: {e}; text: {text_snip}")
+                    continue
+
                 logging.info(f"✅ Image generated via Getimg model: {model_name}")
-                return result["data"][0]["url"]
+                return data["data"][0]["url"]
 
-            elif response.status_code == 429:
+            elif status == 429:
                 last_getimg_rate_limit_time = time.time()
                 getimg_failures += 1
-                logging.warning(f"🚫 Getimg rate-limited (429). Cooling down.")
+                logging.warning(f"🚫 Getimg rate-limited: {status} → {text_snip}")
                 return None
+
             else:
-                logging.warning(f"⚠️ Getimg model '{model_name}' failed: {response.status_code} ➝ {response.text}")
+                logging.warning(f"⚠️ Getimg model '{model_name}' failed: {status} → {text_snip}")
 
         getimg_failures += 1
         logging.error("❌ All Getimg model attempts failed.")
@@ -167,6 +198,7 @@ def call_getimg(prompt, image_url):
         logging.exception("❌ Getimg exception occurred")
 
     return None
+
 
 def generate_goal_image(prompt, image_url, gender=None, current_weight=None, desired_weight=None):
     try:
@@ -192,14 +224,18 @@ def generate_goal_image(prompt, image_url, gender=None, current_weight=None, des
 
         enhanced_prompt = build_prompt(prompt, gender, current_weight, desired_weight)
 
-        # Step 1: Generate face-enhanced image using Segmind
+        # 1️⃣ Face‐enhancement via Segmind (with cooldown + safe JSON parsing)
         face_enhanced_url = call_segmind(enhanced_prompt, uploaded_image_url)
         if not face_enhanced_url:
-            logging.warning("⚠️ Segmind failed. Using original uploaded image for body generation.")
+            logging.warning("⚠️ Segmind failed. Falling back to original upload.")
             face_enhanced_url = uploaded_image_url
 
-        # Step 2: Generate full-body transformation with Getimg
+        # 2️⃣ Full‐body via Getimg (then final fallback to face_enhanced_url)
         final_result_url = call_getimg(enhanced_prompt, face_enhanced_url)
+        if not final_result_url:
+            logging.warning("⚠️ Getimg failed. Falling back to face‐enhanced image.")
+            final_result_url = face_enhanced_url
+
         return final_result_url
 
     except requests.exceptions.RequestException as e:

@@ -1,4 +1,3 @@
-# app.py
 import logging
 from flask import Flask, request, jsonify
 from fitness_utils import (
@@ -25,6 +24,37 @@ def log_request():
     logging.info(f"🔍 Incoming request: {request.method} {request.path}")
 
 # ----------------------------
+# Utility: parse height strings into meters
+# ----------------------------
+def parse_height(raw):
+    if not raw:
+        return None
+    r = raw.strip().lower()
+    try:
+        # centimeters, e.g. "180cm"
+        if r.endswith('cm'):
+            return float(r[:-2].strip()) / 100
+        # meters, e.g. "1.75m"
+        if r.endswith('m'):
+            return float(r[:-1].strip())
+        # feet & inches, e.g. "5'10" or "5 ft 10 in"
+        if "'" in r:
+            parts = r.split("'")
+            feet = float(parts[0])
+            inches = 0
+            if len(parts) > 1:
+                inches = float(parts[1].replace('"','').replace('in','').strip())
+            return (feet * 12 + inches) * 0.0254
+        # pure number: assume cm if >3, else meters
+        val = float(r)
+        if val > 3:
+            return val / 100
+        return val
+    except Exception:
+        logging.warning(f"⚠️ Invalid height format: '{raw}'")
+        return None
+
+# ----------------------------
 # Webhook: Image + Workout Plan
 # ----------------------------
 @app.route('/webhook', methods=['POST'])
@@ -43,38 +73,50 @@ def handle_webhook():
     fields = data['data']['fields']
 
     # Extract form fields
-    first_name = get_field_value(fields, 'first name', 'name')
-    email = get_field_value(fields, 'email')
-    gender = get_field_value(fields, 'gender', 'sex')
-    date_of_birth = get_field_value(fields, 'date of birth', 'dob')
-    photo_url = get_field_value(fields, 'photo', 'image')
-    current_weight_lbs = get_field_value(fields, "current weight", "current body weight", "weight now")
-    desired_weight_lbs = get_field_value(fields, "desired weight", "target weight", "goal weight")
+    first_name          = get_field_value(fields, 'first name', 'name')
+    email               = get_field_value(fields, 'email')
+    gender              = get_field_value(fields, 'gender', 'sex')
+    date_of_birth       = get_field_value(fields, 'date of birth', 'dob')
+    photo_url           = get_field_value(fields, 'photo', 'image')
+    current_weight_lbs  = get_field_value(fields, 'current weight', 'current body weight', 'weight now')
+    desired_weight_lbs  = get_field_value(fields, 'desired weight', 'target weight', 'goal weight')
+    height_raw          = get_field_value(fields, 'height', 'height (cm)', 'height (ft)', 'height')
+
+    # Parse height into meters
+    height_m = parse_height(height_raw)
+    if height_m:
+        logging.info(f"📏 Parsed height: {height_m:.2f} m")
 
     # Data transformations
-    age = calculate_age(date_of_birth)
+    age               = calculate_age(date_of_birth)
     current_weight_kg = pounds_to_kg(current_weight_lbs)
     desired_weight_kg = pounds_to_kg(desired_weight_lbs)
 
-    # AI image generation
+    # Build AI prompt (include height if available)
     ai_prompt = (
-        f"{age}-year-old {gender} person at {desired_weight_lbs} lbs, "
-        "athletic, healthy body, fit appearance, soft lighting, full-body studio portrait"
+        f"{age}-year-old {gender} at {desired_weight_lbs} lbs"
     )
+    if height_m:
+        ai_prompt += f", {height_m:.2f} m tall"
+    ai_prompt += ", athletic, healthy body, fit appearance, soft lighting, full-body studio portrait"
+
+    # AI image generation (pass height_m to image generator)
     image_url = generate_goal_image(
         ai_prompt,
         photo_url,
         gender=gender,
         current_weight=current_weight_lbs,
-        desired_weight=desired_weight_lbs
+        desired_weight=desired_weight_lbs,
+        height_m=height_m
     )
 
-    # Workout plan generation
+    # Workout plan generation (you can incorporate height_m in fitness_utils later)
     workout_plan_html = generate_workout_plan(
         age=age,
         gender=gender,
         current_weight_kg=current_weight_kg,
-        desired_weight_kg=desired_weight_kg
+        desired_weight_kg=desired_weight_kg,
+        # height_m=height_m  # add once your fitness_utils supports it
     )
 
     # Full-plan PDF (with image)
@@ -109,6 +151,7 @@ Thanks for submitting your fitness form! Here's a quick summary:<br>
 <ul>
   <li><b>Age:</b> {age}</li>
   <li><b>Gender:</b> {gender}</li>
+  <li><b>Height:</b> {height_raw or '—'}</li>
   <li><b>Current Weight:</b> {current_weight_lbs} lbs ({current_weight_kg} kg)</li>
   <li><b>Desired Weight:</b> {desired_weight_lbs} lbs ({desired_weight_kg} kg)</li>
 </ul>
@@ -150,7 +193,8 @@ def handle_workout():
         injuries=data.get('injuries'),
         sleep_quality=data.get('sleep_quality'),
         tracking_calories=data.get('tracking_calories'),
-        notes=data.get('notes')
+        notes=data.get('notes'),
+        # height_m=data.get('height_m')  # include once supported
     )
     # Generate plan-only PDF
     plan_pdf_url = create_pdf_plan_only(plan_html)

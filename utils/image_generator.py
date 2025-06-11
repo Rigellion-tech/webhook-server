@@ -53,7 +53,7 @@ def call_segmind(prompt, image_url):
             return None
 
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "x-api-key": api_key,
             "Content-Type": "application/json"
         }
 
@@ -67,18 +67,26 @@ def call_segmind(prompt, image_url):
             "guess_mode": False
         }
 
-        response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
+        response = requests.post(
+            "https://api.segmind.com/v1/instantid",
+            headers=headers,
+            json=payload
+        )
 
         if response.status_code == 200:
             result = response.json()
-            return result.get("output")[0] if isinstance(result.get("output"), list) else result.get("output")
+            output = result.get("output")
+            return output[0] if isinstance(output, list) else output
+
         elif response.status_code == 429:
             last_segmind_rate_limit_time = time.time()
             segmind_failures += 1
             logging.warning("🚫 Segmind rate-limited (429). Cooling down.")
+
         elif response.status_code == 401:
             segmind_failures += 1
             logging.error("🔐 Segmind auth failed (401). Check your API key.")
+
         else:
             segmind_failures += 1
             logging.error(f"❌ Segmind API error {response.status_code}: {response.text}")
@@ -88,6 +96,7 @@ def call_segmind(prompt, image_url):
         logging.exception("❌ Segmind exception")
 
     return None
+
 
 def call_getimg(prompt, image_url):
     global getimg_calls, getimg_failures, last_getimg_rate_limit_time

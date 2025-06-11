@@ -192,9 +192,7 @@ def create_pdf_plan_only(workout_plan_html):
         pdf.cell(0, 10, txt="Personalized Workout Plan", ln=True, align='C')
         pdf.ln(5)
         pdf.set_font("Helvetica", size=12)
-        for line in html.replace("<br>", "
-").split("
-"):
+        for line in html.replace("<br>", "\n").split("\n"):
             clean = re.sub(r"<[^>]+>", "", line)
             if not clean.strip():
                 continue

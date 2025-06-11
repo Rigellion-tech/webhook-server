@@ -155,7 +155,7 @@ def create_pdf_with_workout(image_url, workout_plan_html):
         pdf.ln(10)
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Helvetica", size=12)
-        for line in html.replace("<br>", "\n").split("\n")
+        for line in html.replace("<br>", "\n").split("\n"):
             if line.strip().startswith("<b>"):
                 pdf.set_font("Helvetica", 'B', 13)
             pdf.multi_cell(0, 8, re.sub(r"<[^>]+>", "", line))

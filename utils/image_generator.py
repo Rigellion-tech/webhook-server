@@ -1,4 +1,3 @@
-# utils/image_generator.py
 import os
 import time
 import base64
@@ -42,7 +41,6 @@ def build_prompt(base_prompt, gender=None, current_weight=None, desired_weight=N
     logging.info(f"📝 Final prompt: {final_prompt}")
     return final_prompt
 
-
 def call_segmind(prompt, image_url):
     global segmind_calls, segmind_failures, last_segmind_rate_limit_time
     segmind_calls += 1
@@ -75,40 +73,48 @@ def call_segmind(prompt, image_url):
             "guess_mode": False
         }
 
-        response = requests.post("https://api.segmind.com/v1/instantid",
-                                 headers=headers, json=payload)
+        response = requests.post("https://api.segmind.com/v1/instantid", headers=headers, json=payload)
         status = response.status_code
+        ct = response.headers.get("Content-Type", "")
         text_snip = (response.text or "")[:200]
 
-        # 200 OK → safe‐guard JSON decode
         if status == 200:
-            ct = response.headers.get("Content-Type", "")
-            if "application/json" not in ct:
-                segmind_failures += 1
-                logging.error(f"❌ Segmind returned non-JSON ({ct}): {text_snip}")
-                return None
-            try:
-                result = response.json()
-            except ValueError as e:
-                segmind_failures += 1
-                logging.error(f"❌ Segmind JSON decode failed: {e}; text: {text_snip}")
-                return None
+            # If Segmind returns raw image bytes
+            if ct.startswith("image/"):
+                try:
+                    img_buf = BytesIO(response.content)
+                    Image.open(img_buf).verify()
+                    img_buf.seek(0)
+                except Exception as e:
+                    segmind_failures += 1
+                    logging.error(f"❌ Segmind returned bad image bytes: {e}")
+                    return None
+                # upload the raw image to Cloudinary
+                upload_res = cloudinary_upload(file=img_buf, folder="webhook_images")
+                return upload_res.get('secure_url')
 
-            output = result.get("output")
-            return output[0] if isinstance(output, list) else output
+            # If JSON response
+            if "application/json" in ct:
+                try:
+                    data = response.json()
+                except ValueError as e:
+                    segmind_failures += 1
+                    logging.error(f"❌ Segmind JSON decode failed: {e}; text: {text_snip}")
+                    return None
+                output = data.get("output")
+                return output[0] if isinstance(output, list) else output
 
-        # handle rate‐limit
+            segmind_failures += 1
+            logging.error(f"❌ Segmind returned unexpected content-type {ct}: {text_snip}")
+            return None
+
         elif status == 429:
             last_segmind_rate_limit_time = time.time()
             segmind_failures += 1
             logging.warning(f"🚫 Segmind rate-limited: {status} → {text_snip}")
-
-        # auth error
         elif status == 401:
             segmind_failures += 1
             logging.error(f"🔐 Segmind auth failed: {status} → {text_snip}")
-
-        # any other error
         else:
             segmind_failures += 1
             logging.error(f"❌ Segmind API error {status}: {text_snip}")
@@ -118,7 +124,6 @@ def call_segmind(prompt, image_url):
         logging.exception("❌ Segmind exception")
 
     return None
-
 
 def call_getimg(prompt, image_url):
     global getimg_calls, getimg_failures, last_getimg_rate_limit_time

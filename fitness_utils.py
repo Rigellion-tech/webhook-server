@@ -134,10 +134,8 @@ def generate_workout_plan(
                 temperature=0.7
             )
             plan = response.choices[0].message.content
-            plan = re.sub(r"^```(?:html)?
-", "", plan)
-            plan = re.sub(r"
-```$", "", plan)
+            plan = re.sub(r"^```(?:html)?", "", plan)
+            plan = re.sub(r"```$", "", plan)
             logging.info(f"✅ Workout plan generated using {model}")
             return plan
         except RateLimitError:

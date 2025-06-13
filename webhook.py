@@ -17,7 +17,7 @@ from utils.email_utils import send_email
 app = Flask(__name__)
 
 # Logging setup
-tlogging.basicConfig(
+logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )

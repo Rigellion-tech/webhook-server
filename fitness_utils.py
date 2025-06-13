@@ -72,7 +72,7 @@ def get_field_value(fields, *label_keywords):
     return None
 
 # ----------------------------
-# Workout Plan (GPT-Powered)
+# Workout Plan (GPT-Powered) with model fallback
 # ----------------------------
 def generate_workout_plan(
     age,
@@ -103,7 +103,6 @@ def generate_workout_plan(
     ]
     if height_m is not None:
         user_parts.insert(2, f"Height: {height_m:.2f} m")
-
     for label, value in [
         ("Activity level", activity_level),
         ("Goal timeline", goal_timeline),
@@ -122,15 +121,31 @@ def generate_workout_plan(
         "<b>Sample Meal Plan:</b>. Include safety tips and recovery guidance.<br>"
         + "<br>".join(user_parts)
     )
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[system_msg, {"role": "user", "content": user_prompt}],
-        temperature=0.7
-    )
-    plan = response.choices[0].message.content
-    plan = re.sub(r"^```(?:html)?\n", "", plan)
-    plan = re.sub(r"\n```$", "", plan)
-    return plan
+
+    # Try GPT-4 then fallback to GPT-3.5
+    for model in ("gpt-4o-mini", "gpt-3.5-turbo"):
+        try:
+            response = openai.ChatCompletion.create(
+                model=model,
+                messages=[system_msg, {"role": "user", "content": user_prompt}],
+                temperature=0.7
+            )
+            plan = response.choices[0].message.content
+            plan = re.sub(r"^```(?:html)?\n", "", plan)
+            plan = re.sub(r"\n```$", "", plan)
+            logging.info(f"✅ Workout plan generated using {model}")
+            return plan
+        except RateLimitError:
+            logging.warning(f"⚠️ {model} rate-limited, trying next model")
+            continue
+        except APIError as e:
+            logging.error(f"❌ OpenAI APIError with {model}: {e}")
+            break
+
+    # Fallback message
+    return ("<p><i>Sorry, our workout planner is temporarily overloaded. "
+            "Please try again in a minute.</i></p>")
+
 
 # ----------------------------
 # PDF Creation: With Image

@@ -76,7 +76,6 @@ def get_field_value(fields, *label_keywords):
 # Workout Plan (GPT-Powered) with model fallback
 # ----------------------------
 from openai.error import RateLimitError, APIError, OpenAIError
-
 def generate_workout_plan(
     age,
     gender,
@@ -125,27 +124,40 @@ def generate_workout_plan(
         + "<br>".join(user_parts)
     )
 
-    # Try GPT-4 first, then fallback to GPT-3.5
-    for model in ("gpt-4o-mini", "gpt-3.5-turbo"):
-        try:
-            response = openai.ChatCompletion.create(
-                model=model,
-                messages=[system_msg, {"role": "user", "content": user_prompt}],
-                temperature=0.7
-            )
-            plan = response.choices[0].message.content
-            plan = re.sub(r"^```(?:html)?", "", plan)
-            plan = re.sub(r"```$", "", plan)
-            logging.info(f"✅ Workout plan generated using {model}")
-            return plan
-        except RateLimitError:
-            logging.warning(f"⚠️ {model} rate-limited, trying next model")
-            continue
-        except (APIError, OpenAIError) as e:
-            logging.warning(f"⚠️ OpenAI error on {model}, trying next model: {e}")
-            continue
+    # Primary try: GPT-4
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[system_msg, {"role": "user", "content": user_prompt}],
+            temperature=0.7
+        )
+        plan = response.choices[0].message.content
+        # strip code fences
+        plan = re.sub(r"^```(?:html)?\n", "", plan)
+        plan = re.sub(r"\n```$", "", plan)
+        logging.info("✅ Workout plan generated using gpt-4o-mini")
+        return plan
+    except RateLimitError as e:
+        logging.warning(f"⚠️ gpt-4o-mini rate-limited: {e}; falling back to gpt-3.5-turbo")
+    except APIError as e:
+        logging.warning(f"⚠️ OpenAI API error on gpt-4o-mini: {e}; falling back to gpt-3.5-turbo")
 
-    # If both models fail, return friendly message
+    # Fallback: GPT-3.5
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[system_msg, {"role": "user", "content": user_prompt}],
+            temperature=0.7
+        )
+        plan = response.choices[0].message.content
+        plan = re.sub(r"^```(?:html)?\n", "", plan)
+        plan = re.sub(r"\n```$", "", plan)
+        logging.info("✅ Workout plan generated using gpt-3.5-turbo")
+        return plan
+    except Exception as e:
+        logging.error(f"❌ Failed to generate workout plan with gpt-3.5-turbo: {e}")
+
+    # Ultimate fallback message
     return (
         "<p><i>Sorry, our workout planner is temporarily overloaded. "
         "Please try again in a minute.</i></p>"
@@ -248,3 +260,4 @@ def create_pdf_plan_only(workout_plan_html):
     except Exception as e:
         logging.error(f"❌ Plan-only PDF creation failed: {e}")
         return None
+

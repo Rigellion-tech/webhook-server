@@ -75,6 +75,8 @@ def get_field_value(fields, *label_keywords):
 # ----------------------------
 # Workout Plan (GPT-Powered) with model fallback
 # ----------------------------
+from openai.error import RateLimitError, APIError, OpenAIError
+
 def generate_workout_plan(
     age,
     gender,
@@ -123,7 +125,7 @@ def generate_workout_plan(
         + "<br>".join(user_parts)
     )
 
-    # Attempt GPT-4 then fallback to GPT-3.5
+    # Try GPT-4 first, then fallback to GPT-3.5
     for model in ("gpt-4o-mini", "gpt-3.5-turbo"):
         try:
             response = openai.ChatCompletion.create(
@@ -132,18 +134,20 @@ def generate_workout_plan(
                 temperature=0.7
             )
             plan = response.choices[0].message.content
-            plan = re.sub(r"^```(?:html)?\n", "", plan)
-            plan = re.sub(r"\n```$", "", plan)
+            plan = re.sub(r"^```(?:html)?
+", "", plan)
+            plan = re.sub(r"
+```$", "", plan)
             logging.info(f"✅ Workout plan generated using {model}")
             return plan
         except RateLimitError:
             logging.warning(f"⚠️ {model} rate-limited, trying next model")
             continue
-        except APIError as e:
-            logging.error(f"❌ OpenAI APIError with {model}: {e}")
-            break
+        except (APIError, OpenAIError) as e:
+            logging.warning(f"⚠️ OpenAI error on {model}, trying next model: {e}")
+            continue
 
-    # Fallback message
+    # If both models fail, return friendly message
     return (
         "<p><i>Sorry, our workout planner is temporarily overloaded. "
         "Please try again in a minute.</i></p>"
